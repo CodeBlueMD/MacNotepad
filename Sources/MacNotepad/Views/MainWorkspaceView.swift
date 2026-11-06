@@ -235,11 +235,19 @@ public struct MainWorkspaceView: View {
                     .help("Open File…")
 
                     Menu("File") {
-                        Button("New Scratch Tab", action: createNewTab)
-                        Button("Open File (.txt, .md, .docx, .pdf, .rtf)…", action: openFilePanel)
+                        Button("New Tab   ⌘N", action: createNewTab)
+                        Button("New Note   ⌥⌘N") { store.newNote() }
+                        Button("Open…   ⌘O", action: openFilePanel)
+                        Menu("Open Recent") {
+                            ForEach(store.preferences.recentFilePaths, id: \.self) { path in
+                                Button((path as NSString).abbreviatingWithTildeInPath) { store.open(urls: [URL(fileURLWithPath: path)]) }
+                            }
+                        }
+                        .disabled(store.preferences.recentFilePaths.isEmpty)
+                        Button("Reopen Closed Tab   ⇧⌘T") { store.reopenClosedTab() }
                         Divider()
-                        Button("Quick Save to ~/Documents/MacNotepad", action: quickSaveActiveTabToDocuments)
-                        Button("Save As…", action: saveActiveTabWithPanel)
+                        Button("Save   ⌘S", action: quickSaveActiveTabToDocuments)
+                        Button("Save As…   ⇧⌘S", action: saveActiveTabWithPanel)
                         Divider()
                         Menu("Convert / Export Active Tab As…") {
                             ForEach(ExportDocumentFormat.allCases) { format in
@@ -269,28 +277,44 @@ public struct MainWorkspaceView: View {
                     .fixedSize()
 
                     Menu("Edit") {
-                        Button("Find & Replace") {
+                        Button("Find & Replace   ⌘F") {
                             withAnimation { showFindBar.toggle() }
                         }
-                        Button("Find in Files (~/Documents/MacNotepad)…") {
+                        Button("Find in Notes Folder…   ⇧⌘F") {
                             runFindInFiles()
                         }
                         Divider()
                         Button("Replace All Matches") {
                             replaceAllInActiveTab()
                         }
+                        Divider()
+                        Button("Go to Line…   ⌘L") { sendEditorAction(#selector(EditorTextView.goToLine(_:))) }
+                        Button("Insert Block…   ⌥⌘/") { sendEditorAction(#selector(EditorTextView.showSlashMenu(_:))) }
                     }
                     .menuStyle(.borderlessButton)
                     .font(.system(size: 12.5, weight: .medium))
                     .fixedSize()
 
+                    // Mirrors the macOS menu bar's View menu (shortcuts shown in the titles).
                     Menu("View") {
-                        Toggle("Show Line Numbers", isOn: $store.preferences.showLineNumbers)
-                        Toggle("Word Wrap", isOn: $store.preferences.wordWrap)
+                        Toggle("Notes Library   ⌃⌘S", isOn: $store.preferences.showSidebar)
+                        Button(store.isOutlineVisible(for: store.activeTab) ? "Hide Outline   ⌃⌘O" : "Show Outline   ⌃⌘O") {
+                            store.toggleOutline()
+                        }
+                        Toggle("Markdown Preview   ⌥⌘P", isOn: $store.preferences.showPreview)
                         Divider()
-                        Button("Toggle Side-by-Side Diff Compare") {
+                        Toggle("Live Markdown Styling", isOn: $store.preferences.liveMarkdownStyling)
+                        Toggle("Show Line Numbers", isOn: $store.preferences.showLineNumbers)
+                        Toggle("Show Invisibles   ⌥⌘I", isOn: $store.preferences.showWhitespace)
+                        Toggle("Word Wrap   ⌥⌘Z", isOn: $store.preferences.wordWrap)
+                        Picker("Theme", selection: $store.preferences.theme) {
+                            ForEach(AppTheme.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        Divider()
+                        Button("Compare Tabs Side by Side   ⌥⌘D") {
                             enterOrToggleDiffMode()
                         }
+                        Button("Command Palette…   ⇧⌘P") { store.showCommandPalette = true }
                         Divider()
                         Button("Zoom In (+10%)") { preferences.zoomPercentage = min(200, preferences.zoomPercentage + 10) }
                         Button("Zoom Out (-10%)") { preferences.zoomPercentage = max(50, preferences.zoomPercentage - 10) }
