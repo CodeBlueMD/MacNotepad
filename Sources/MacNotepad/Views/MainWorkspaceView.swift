@@ -5,34 +5,29 @@ import UniformTypeIdentifiers
 
 /// Main Windows 11 Notepad x Notepad++ crossover workspace for macOS, matching the 3 design mockups.
 public struct MainWorkspaceView: View {
-    @State private var tabs: [DocumentTab] = SessionManager.shared.loadSession()
-    @State private var activeTabID: UUID?
-    @State private var preferences: EditorPreferences = SessionManager.shared.loadPreferences()
-
-    // Floating Find & Replace Bar (Mockup 1)
-    @State private var showFindBar: Bool = true
-    @State private var searchOptions = SearchOptions(query: "self")
-    @State private var currentMatchIndex: Int = 0
-
-    // Side-by-Side Split & Diff Compare Mode (Mockup 2)
-    @State private var isDiffMode: Bool = false
-    @State private var compareLeftTabID: UUID?
-    @State private var compareRightTabID: UUID?
-
-    // Developer Text Tools Floating Menu & Settings Modal (Mockup 2 & 3)
-    @State private var showTextToolsMenu: Bool = false
+    @ObservedObject private var store = WorkspaceStore.shared
     @State private var lastAppliedTool: TextToolAction = .jsonPrettyPrint
-    @State private var showSettingsSheet: Bool = false
-    @State private var showFindInFilesSheet: Bool = false
-    @State private var findInFilesResults: [SearchMatch] = []
-    @State private var statusBannerMessage: String?
+
+    // Window state lives in WorkspaceStore so the menu bar, Finder and URL handlers can drive it.
+    private var tabs: [DocumentTab] { get { store.tabs } nonmutating set { store.tabs = newValue } }
+    private var activeTabID: UUID? { get { store.activeTabID } nonmutating set { store.activeTabID = newValue } }
+    private var preferences: EditorPreferences { get { store.preferences } nonmutating set { store.preferences = newValue } }
+    private var showFindBar: Bool { get { store.showFindBar } nonmutating set { store.showFindBar = newValue } }
+    private var searchOptions: SearchOptions { get { store.searchOptions } nonmutating set { store.searchOptions = newValue } }
+    private var currentMatchIndex: Int { get { store.currentMatchIndex } nonmutating set { store.currentMatchIndex = newValue } }
+    private var isDiffMode: Bool { get { store.isDiffMode } nonmutating set { store.isDiffMode = newValue } }
+    private var compareLeftTabID: UUID? { get { store.compareLeftTabID } nonmutating set { store.compareLeftTabID = newValue } }
+    private var compareRightTabID: UUID? { get { store.compareRightTabID } nonmutating set { store.compareRightTabID = newValue } }
+    private var showTextToolsMenu: Bool { get { store.showTextToolsMenu } nonmutating set { store.showTextToolsMenu = newValue } }
+    private var showSettingsSheet: Bool { get { store.showSettingsSheet } nonmutating set { store.showSettingsSheet = newValue } }
+    private var showFindInFilesSheet: Bool { get { store.showFindInFilesSheet } nonmutating set { store.showFindInFilesSheet = newValue } }
+    private var findInFilesResults: [SearchMatch] { get { store.findInFilesResults } nonmutating set { store.findInFilesResults = newValue } }
+    private var statusBannerMessage: String? { get { store.statusBannerMessage } nonmutating set { store.statusBannerMessage = newValue } }
+    private var showCommandPalette: Bool { get { store.showCommandPalette } nonmutating set { store.showCommandPalette = newValue } }
 
     public init() {}
 
-    private var activeTabIndex: Int? {
-        guard let id = activeTabID ?? tabs.first?.id else { return nil }
-        return tabs.firstIndex { $0.id == id }
-    }
+    private var activeTabIndex: Int? { store.activeTabIndex }
 
     private var activeMatches: [SearchMatch] {
         guard let idx = activeTabIndex, showFindBar, !searchOptions.query.isEmpty else { return [] }
@@ -46,74 +41,108 @@ public struct MainWorkspaceView: View {
         return matches[safeIdx].range
     }
 
+    @State private var revealRequest: CodeEditorView.RevealRequest?
+    @State private var dropTargetTabID: UUID?
+
+    private var showsPreview: Bool {
+        preferences.showPreview && !isDiffMode && store.activeTab?.language == .markdown
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             windowTitleHeader
             commandMenuToolbar
 
-            if !isDiffMode {
-                modernTabBar
-            }
+            HStack(spacing: 0) {
+                if preferences.showSidebar && !isDiffMode {
+                    NotesSidebarView()
+                        .frame(width: 250)
+                    Divider().opacity(0.5)
+                }
 
-            ZStack(alignment: .topTrailing) {
-                if isDiffMode {
-                    diffComparisonWorkspace
-                } else if let idx = activeTabIndex {
-                    HStack(spacing: 0) {
-                        if preferences.showLineNumbers {
-                            lineNumberGutter(for: $tabs[idx])
+                VStack(spacing: 0) {
+                    if !isDiffMode {
+                        modernTabBar
+                    }
+                    if let idx = activeTabIndex, store.externallyChangedTabIDs.contains(tabs[idx].id) {
+                        externalChangeBanner(for: tabs[idx])
+                    }
+
+                    ZStack(alignment: .topTrailing) {
+                        if isDiffMode {
+                            diffComparisonWorkspace
+                        } else if let idx = activeTabIndex {
+                            HStack(spacing: 0) {
+                                CodeEditorView(
+                                    tab: $store.tabs[idx],
+                                    preferences: preferences,
+                                    searchHighlights: activeMatches.map(\.range),
+                                    focusedMatchRange: focusedMatchRange,
+                                    revealRequest: revealRequest
+                                )
+                                .id(tabs[idx].id)
+
+                                if showsPreview {
+                                    Divider().opacity(0.5)
+                                    MarkdownPreviewView(markdown: tabs[idx].content, title: tabs[idx].baseName, dark: preferences.theme.isDark)
+                                        .id(tabs[idx].id)
+                                        .frame(minWidth: 260, maxWidth: .infinity)
+                                }
+                            }
                         }
-                        CodeEditorView(
-                            tab: $tabs[idx],
-                            preferences: preferences,
-                            searchHighlights: activeMatches.map(\.range),
-                            focusedMatchRange: focusedMatchRange
-                        )
+
+                        if showFindBar && !isDiffMode {
+                            floatingFindReplaceBar
+                                .padding(.top, 10)
+                                .padding(.trailing, 18)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
+                        if showTextToolsMenu {
+                            developerTextToolsOverlay
+                                .padding(.top, 6)
+                                .padding(.trailing, 14)
+                                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+                        }
                     }
                 }
 
-                // Floating Find & Replace Panel (Top-Right, Mockup 1)
-                if showFindBar && !isDiffMode {
-                    floatingFindReplaceBar
-                        .padding(.top, 10)
-                        .padding(.trailing, 18)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                // Floating Developer Text Tools Dropdown Panel (Top-Right, Mockup 2)
-                if showTextToolsMenu {
-                    developerTextToolsOverlay
-                        .padding(.top, 6)
-                        .padding(.trailing, 14)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+                if preferences.showOutline && !isDiffMode, let tab = store.activeTab {
+                    Divider().opacity(0.5)
+                    OutlinePanel(tab: tab) { line in
+                        revealRequest = CodeEditorView.RevealRequest(line: line)
+                    }
                 }
             }
 
             modernStatusBar
         }
-        .background(Color(nsColor: NSColor(calibratedRed: 0.098, green: 0.106, blue: 0.125, alpha: 1.0)))
-        .preferredColorScheme(preferences.theme == .light ? .light : .dark)
-        .onAppear {
-            // Default to AppEngine.swift tab on launch to match Mockup 1
-            if activeTabID == nil {
-                if let appEngineTab = tabs.first(where: { $0.title == "AppEngine.swift" }) {
-                    activeTabID = appEngineTab.id
-                } else {
-                    activeTabID = tabs.first?.id
+        .background(Chrome.editor)
+        .preferredColorScheme(preferences.theme == .system ? nil : (preferences.theme == .light ? .light : .dark))
+        .overlay(alignment: .top) {
+            if store.showCommandPalette {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.18)
+                        .ignoresSafeArea()
+                        .onTapGesture { store.showCommandPalette = false }
+                    CommandPaletteView { store.showCommandPalette = false }
+                        .padding(.top, 90)
                 }
             }
+        }
+        .onAppear {
             setupDefaultDiffTabs()
-            SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
         }
-        .onChange(of: tabs) { updatedTabs in
-            if preferences.persistentUnsavedTabs {
-                SessionManager.shared.saveSession(tabs: updatedTabs)
-            }
+        .onChange(of: store.showCommandPalette) { open in
+            if !open { DispatchQueue.main.async { EditorTextView.focusInMainWindow() } }
         }
-        .sheet(isPresented: $showSettingsSheet) {
+        .onChange(of: store.showFindBar) { open in
+            if !open { DispatchQueue.main.async { EditorTextView.focusInMainWindow() } }
+        }
+        .sheet(isPresented: $store.showSettingsSheet) {
             settingsSheetView
         }
-        .sheet(isPresented: $showFindInFilesSheet) {
+        .sheet(isPresented: $store.showFindInFilesSheet) {
             findInFilesSheetView
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -121,18 +150,33 @@ public struct MainWorkspaceView: View {
         }
     }
 
+    private func externalChangeBanner(for tab: DocumentTab) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+            Text("\(tab.title) was changed by another app. You have unsaved edits here.")
+                .font(.system(size: 12))
+            Spacer()
+            Button("Reload from Disk") { store.reloadTab(tab.id) }
+            Button("Keep My Version") { store.keepLocalVersion(tab.id) }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(Color.orange.opacity(0.14))
+    }
+
     // MARK: - 1. Window Title Header (Centered "MacNotepad" only)
 
     private var windowTitleHeader: some View {
         HStack {
             Spacer()
-            Text("MacNotepad")
+            Text(store.activeTab.map { "\($0.isDirty ? "• " : "")\($0.title) — MacNotepad" } ?? "MacNotepad")
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.88))
+                .foregroundColor(Chrome.fg.opacity(0.85))
+                .lineLimit(1)
             Spacer()
         }
         .frame(height: 28)
-        .background(Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.14, blue: 0.17, alpha: 1.0)))
+        .background(Chrome.toolbar)
     }
 
     // MARK: - 2. Command & Menu Toolbar (Mockup 1 & 2)
@@ -147,7 +191,7 @@ public struct MainWorkspaceView: View {
                         Text("Open")
                     }
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.85))
+                    .foregroundColor(Chrome.fg.opacity(0.85))
                 }
                 .buttonStyle(.plain)
 
@@ -157,7 +201,7 @@ public struct MainWorkspaceView: View {
                         Text("Save")
                     }
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.85))
+                    .foregroundColor(Chrome.fg.opacity(0.85))
                 }
                 .buttonStyle(.plain)
 
@@ -167,7 +211,7 @@ public struct MainWorkspaceView: View {
                         Text("Merge")
                     }
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.85))
+                    .foregroundColor(Chrome.fg.opacity(0.85))
                 }
                 .buttonStyle(.plain)
                 .help("Merge modified right pane into original left pane")
@@ -192,14 +236,10 @@ public struct MainWorkspaceView: View {
 
                     Menu("File") {
                         Button("New Scratch Tab", action: createNewTab)
-                            .keyboardShortcut("n", modifiers: .command)
                         Button("Open File (.txt, .md, .docx, .pdf, .rtf)…", action: openFilePanel)
-                            .keyboardShortcut("o", modifiers: .command)
                         Divider()
                         Button("Quick Save to ~/Documents/MacNotepad", action: quickSaveActiveTabToDocuments)
-                            .keyboardShortcut("s", modifiers: .command)
                         Button("Save As…", action: saveActiveTabWithPanel)
-                            .keyboardShortcut("s", modifiers: [.command, .shift])
                         Divider()
                         Menu("Convert / Export Active Tab As…") {
                             ForEach(ExportDocumentFormat.allCases) { format in
@@ -221,10 +261,8 @@ public struct MainWorkspaceView: View {
                                 closeTab(id)
                             }
                         }
-                        .keyboardShortcut("w", modifiers: .command)
                         Divider()
                         Button("Preferences & Default Save Location…") { showSettingsSheet = true }
-                            .keyboardShortcut(",", modifiers: .command)
                     }
                     .menuStyle(.borderlessButton)
                     .font(.system(size: 12.5, weight: .medium))
@@ -234,11 +272,9 @@ public struct MainWorkspaceView: View {
                         Button("Find & Replace") {
                             withAnimation { showFindBar.toggle() }
                         }
-                        .keyboardShortcut("f", modifiers: .command)
                         Button("Find in Files (~/Documents/MacNotepad)…") {
                             runFindInFiles()
                         }
-                        .keyboardShortcut("f", modifiers: [.command, .shift])
                         Divider()
                         Button("Replace All Matches") {
                             replaceAllInActiveTab()
@@ -249,21 +285,16 @@ public struct MainWorkspaceView: View {
                     .fixedSize()
 
                     Menu("View") {
-                        Toggle("Show Line Numbers", isOn: $preferences.showLineNumbers)
-                        Toggle("Enable Code Folding", isOn: $preferences.enableCodeFolding)
-                        Toggle("Word Wrap", isOn: $preferences.wordWrap)
+                        Toggle("Show Line Numbers", isOn: $store.preferences.showLineNumbers)
+                        Toggle("Word Wrap", isOn: $store.preferences.wordWrap)
                         Divider()
                         Button("Toggle Side-by-Side Diff Compare") {
                             enterOrToggleDiffMode()
                         }
-                        .keyboardShortcut("d", modifiers: .command)
                         Divider()
                         Button("Zoom In (+10%)") { preferences.zoomPercentage = min(200, preferences.zoomPercentage + 10) }
-                            .keyboardShortcut("=", modifiers: .command)
                         Button("Zoom Out (-10%)") { preferences.zoomPercentage = max(50, preferences.zoomPercentage - 10) }
-                            .keyboardShortcut("-", modifiers: .command)
                         Button("Reset Zoom (100%)") { preferences.zoomPercentage = 100 }
-                            .keyboardShortcut("0", modifiers: .command)
                     }
                     .menuStyle(.borderlessButton)
                     .font(.system(size: 12.5, weight: .medium))
@@ -276,7 +307,7 @@ public struct MainWorkspaceView: View {
                     } label: {
                         Text("Text Tools")
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(showTextToolsMenu ? .cyan : Color.white.opacity(0.88))
+                            .foregroundColor(showTextToolsMenu ? .cyan : Chrome.fg.opacity(0.88))
                     }
                     .buttonStyle(.plain)
 
@@ -285,7 +316,7 @@ public struct MainWorkspaceView: View {
                     } label: {
                         Text("Compare")
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(isDiffMode ? .cyan : Color.white.opacity(0.88))
+                            .foregroundColor(isDiffMode ? .cyan : Chrome.fg.opacity(0.88))
                     }
                     .buttonStyle(.plain)
 
@@ -367,17 +398,17 @@ public struct MainWorkspaceView: View {
             if !isDiffMode {
                 // Quick Save Pill Button (Mockup 1)
                 Button(action: quickSaveActiveTabToDocuments) {
-                    Text("Quick Save to ~/Documents/MacNotepad")
+                    Label(store.activeTab?.isDirty == true ? "Save" : "Saved", systemImage: store.activeTab?.isDirty == true ? "square.and.arrow.down" : "checkmark")
                         .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(Color.white.opacity(0.9))
+                        .foregroundColor(Chrome.fg.opacity(0.9))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.white.opacity(0.08))
+                                .fill(Chrome.fg.opacity(0.08))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                                        .stroke(Chrome.fg.opacity(0.16), lineWidth: 1)
                                 )
                         )
                 }
@@ -436,12 +467,12 @@ public struct MainWorkspaceView: View {
                 } label: {
                     Image(systemName: "rectangle.split.2x1")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(isDiffMode ? .white : Chrome.fg)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isDiffMode ? Color.blue : Color.white.opacity(0.08))
+                                .fill(isDiffMode ? Color.blue : Chrome.fg.opacity(0.08))
                         )
                 }
                 .buttonStyle(.plain)
@@ -450,7 +481,7 @@ public struct MainWorkspaceView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
-        .background(Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.14, blue: 0.17, alpha: 1.0)))
+        .background(Chrome.toolbar)
         .overlay(Divider().opacity(0.4), alignment: .bottom)
     }
 
@@ -467,14 +498,14 @@ public struct MainWorkspaceView: View {
                                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                                 .foregroundColor(
                                     isSelected
-                                        ? .white
-                                        : (tab.title.hasPrefix("new ") ? Color.cyan : Color.white.opacity(0.62))
+                                        ? Chrome.fg
+                                        : (tab.title.hasPrefix("new ") ? Chrome.accent : Chrome.fg.opacity(0.62))
                                 )
                                 .lineLimit(1)
 
                             if tab.isDirty {
                                 Circle()
-                                    .fill(tab.title.hasPrefix("new ") ? Color.cyan : Color.white.opacity(0.55))
+                                    .fill(tab.title.hasPrefix("new ") ? Chrome.accent : Chrome.fg.opacity(0.55))
                                     .frame(width: 6, height: 6)
                                     .help("Unsaved changes (persisted by Hot Exit)")
                             }
@@ -494,19 +525,55 @@ public struct MainWorkspaceView: View {
                             Group {
                                 if isSelected {
                                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(Color(nsColor: NSColor(calibratedRed: 0.16, green: 0.18, blue: 0.22, alpha: 1.0)))
+                                        .fill(Chrome.selectedTab)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                                                .stroke(Chrome.fg.opacity(0.14), lineWidth: 1)
                                         )
                                 } else {
                                     Color.clear
                                 }
                             }
                         )
+                        .overlay(alignment: .leading) {
+                            if dropTargetTabID == tab.id {
+                                Rectangle().fill(Chrome.accent).frame(width: 2).padding(.vertical, 4)
+                            }
+                        }
                         .contentShape(Rectangle())
                         .onTapGesture {
                             activeTabID = tab.id
+                        }
+                        .help(tab.fileURL?.path ?? (tab.importedFrom.map { "Imported from \($0.lastPathComponent) — saves as a new note" } ?? "Unsaved tab (kept across restarts)"))
+                        .onDrag { NSItemProvider(object: tab.id.uuidString as NSString) }
+                        .onDrop(of: [.text], isTargeted: Binding(
+                            get: { dropTargetTabID == tab.id },
+                            set: { dropTargetTabID = $0 ? tab.id : (dropTargetTabID == tab.id ? nil : dropTargetTabID) }
+                        )) { providers in
+                            providers.first?.loadObject(ofClass: NSString.self) { object, _ in
+                                guard let raw = object as? String, let id = UUID(uuidString: raw) else { return }
+                                DispatchQueue.main.async { store.moveTab(id, before: tab.id) }
+                            }
+                            return true
+                        }
+                        .contextMenu {
+                            Button("Close Tab") { closeTab(tab.id) }
+                            Button("Close Other Tabs") {
+                                for other in tabs where other.id != tab.id && !other.isDirty { closeTab(other.id) }
+                            }
+                            Divider()
+                            if let url = tab.fileURL {
+                                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                                Button("Copy Path") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(url.path, forType: .string)
+                                }
+                            }
+                            Button("Compare with Active Tab") {
+                                compareLeftTabID = store.activeTabID
+                                compareRightTabID = tab.id
+                                isDiffMode = true
+                            }
                         }
                     }
 
@@ -526,7 +593,7 @@ public struct MainWorkspaceView: View {
             }
             Spacer()
         }
-        .background(Color(nsColor: NSColor(calibratedRed: 0.115, green: 0.125, blue: 0.15, alpha: 1.0)))
+        .background(Chrome.tabStrip)
         .overlay(Divider().opacity(0.35), alignment: .bottom)
     }
 
@@ -545,7 +612,7 @@ public struct MainWorkspaceView: View {
                     .lineLimit(1)
                     .frame(width: 54, alignment: .trailing)
 
-                TextField("Find…", text: $searchOptions.query)
+                TextField("Find…", text: $store.searchOptions.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .padding(.horizontal, 8)
@@ -553,7 +620,7 @@ public struct MainWorkspaceView: View {
                     .frame(width: 165)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.black.opacity(0.35))
+                            .fill(Chrome.fg.opacity(Chrome.isDark ? 0.0 : 0.04)).background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(Chrome.isDark ? 0.35 : 0.0)))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 5)
                                     .stroke(Color.cyan.opacity(0.75), lineWidth: 1.2)
@@ -569,7 +636,7 @@ public struct MainWorkspaceView: View {
                             .foregroundColor(searchOptions.matchCase ? .cyan : .secondary)
                         Text("Match Case")
                             .font(.system(size: 11.5, weight: searchOptions.matchCase ? .semibold : .regular))
-                            .foregroundColor(searchOptions.matchCase ? .cyan : Color.white.opacity(0.82))
+                            .foregroundColor(searchOptions.matchCase ? .cyan : Chrome.fg.opacity(0.82))
                     }
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -577,10 +644,10 @@ public struct MainWorkspaceView: View {
                 .buttonStyle(.plain)
                 .frame(width: 96, alignment: .leading)
 
-                Toggle("Match Whole Word", isOn: $searchOptions.wholeWord)
+                Toggle("Match Whole Word", isOn: $store.searchOptions.wholeWord)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11.5))
-                    .foregroundColor(Color.white.opacity(0.82))
+                    .foregroundColor(Chrome.fg.opacity(0.82))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(width: 132, alignment: .leading)
@@ -596,7 +663,7 @@ public struct MainWorkspaceView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(width: 58)
                             .padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.10)))
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Chrome.fg.opacity(0.10)))
                     }
                     .buttonStyle(.plain)
 
@@ -610,7 +677,7 @@ public struct MainWorkspaceView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(width: 44)
                             .padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.10)))
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Chrome.fg.opacity(0.10)))
                     }
                     .buttonStyle(.plain)
                 }
@@ -625,7 +692,7 @@ public struct MainWorkspaceView: View {
                     .lineLimit(1)
                     .frame(width: 54, alignment: .trailing)
 
-                TextField("Replace…", text: $searchOptions.replacement)
+                TextField("Replace…", text: $store.searchOptions.replacement)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .padding(.horizontal, 8)
@@ -633,10 +700,10 @@ public struct MainWorkspaceView: View {
                     .frame(width: 165)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.black.opacity(0.35))
+                            .fill(Chrome.fg.opacity(Chrome.isDark ? 0.0 : 0.04)).background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(Chrome.isDark ? 0.35 : 0.0)))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 5)
-                                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                                    .stroke(Chrome.fg.opacity(0.16), lineWidth: 1)
                             )
                     )
 
@@ -649,7 +716,7 @@ public struct MainWorkspaceView: View {
                             .foregroundColor(searchOptions.useRegex ? .cyan : .secondary)
                         Text("Regex")
                             .font(.system(size: 11.5, weight: searchOptions.useRegex ? .semibold : .regular))
-                            .foregroundColor(searchOptions.useRegex ? .cyan : Color.white.opacity(0.82))
+                            .foregroundColor(searchOptions.useRegex ? .cyan : Chrome.fg.opacity(0.82))
                     }
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -674,7 +741,7 @@ public struct MainWorkspaceView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(width: 58)
                             .padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Chrome.fg.opacity(0.12)))
                     }
                     .buttonStyle(.plain)
 
@@ -687,7 +754,7 @@ public struct MainWorkspaceView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(width: 44)
                             .padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Chrome.fg.opacity(0.12)))
                     }
                     .buttonStyle(.plain)
                 }
@@ -699,63 +766,19 @@ public struct MainWorkspaceView: View {
         .fixedSize(horizontal: true, vertical: true)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color(nsColor: NSColor(calibratedRed: 0.14, green: 0.15, blue: 0.19, alpha: 0.96)))
+                .fill((Chrome.isDark ? Color(red: 0.14, green: 0.15, blue: 0.19).opacity(0.96) : Color.white.opacity(0.97)))
                 .overlay(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                        .stroke(Chrome.fg.opacity(0.16), lineWidth: 1)
                 )
         )
         .shadow(color: .black.opacity(0.45), radius: 12, x: 0, y: 6)
     }
 
-    // MARK: - 5. Line Numbers & Interactive Code Folding Gutter (Mockup 1)
-
-    private func lineNumberGutter(for tab: Binding<DocumentTab>) -> some View {
-        let blocks = SyntaxHighlighter.detectFoldableBlocks(in: tab.wrappedValue.content)
-        let foldableStarts = Set(blocks.map(\.startLine))
-        let displayOffset = tab.wrappedValue.title == "AppEngine.swift" ? 29 : 0
-
-        return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .trailing, spacing: 0) {
-                ForEach(1...max(1, tab.wrappedValue.lineCount), id: \.self) { line in
-                    let shownLineNumber = line + displayOffset
-                    let isFolded = tab.wrappedValue.foldedLineNumbers.contains(line)
-                    HStack(spacing: 5) {
-                        Text("\(shownLineNumber)")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(line == tab.wrappedValue.cursorLine ? .white : Color.white.opacity(0.35))
-
-                        if preferences.enableCodeFolding && foldableStarts.contains(line) {
-                            Button {
-                                if isFolded {
-                                    tab.wrappedValue.foldedLineNumbers.remove(line)
-                                } else {
-                                    tab.wrappedValue.foldedLineNumbers.insert(line)
-                                }
-                            } label: {
-                                Image(systemName: isFolded ? "chevron.right" : "chevron.down")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Spacer().frame(width: 10)
-                        }
-                    }
-                    .frame(height: 19)
-                }
-            }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 8)
-        }
-        .frame(width: 54)
-        .background(Color(nsColor: NSColor(calibratedRed: 0.098, green: 0.106, blue: 0.125, alpha: 1.0)))
-    }
-
     // MARK: - 6. Side-by-Side Split & Diff View (Mockup 2)
 
     private var diffComparisonWorkspace: some View {
-        let leftTab = tabs.first { $0.id == compareLeftTabID } ?? tabs.first ?? DocumentTab(title: "server-v1.json")
+        let leftTab = tabs.first { $0.id == compareLeftTabID } ?? tabs.first ?? DocumentTab(title: "Untitled")
         let rightTab = tabs.first { $0.id == compareRightTabID } ?? tabs.last ?? leftTab
         let comparison = DiffEngine.compare(left: leftTab.content, right: rightTab.content)
 
@@ -771,9 +794,9 @@ public struct MainWorkspaceView: View {
                             Button(t.title) { compareLeftTabID = t.id }
                         }
                     } label: {
-                        Text("\(leftTab.title == "config.json" ? "server-v1.json" : leftTab.title) (Original)")
+                        Text("\(leftTab.title) (Original)")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color.white.opacity(0.88))
+                            .foregroundColor(Chrome.fg.opacity(0.88))
                     }
                     .menuStyle(.borderlessButton)
                     Spacer()
@@ -781,7 +804,7 @@ public struct MainWorkspaceView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity)
-                .background(Color.white.opacity(0.03))
+                .background(Chrome.fg.opacity(0.03))
 
                 Divider()
 
@@ -796,7 +819,7 @@ public struct MainWorkspaceView: View {
                     } label: {
                         Text("\(rightTab.title == "new 1" ? "server-v2.json" : rightTab.title) (Modified)")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color.white.opacity(0.88))
+                            .foregroundColor(Chrome.fg.opacity(0.88))
                     }
                     .menuStyle(.borderlessButton)
                     Spacer()
@@ -804,7 +827,7 @@ public struct MainWorkspaceView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity)
-                .background(Color.white.opacity(0.03))
+                .background(Chrome.fg.opacity(0.03))
             }
             .overlay(Divider().opacity(0.4), alignment: .bottom)
 
@@ -819,7 +842,7 @@ public struct MainWorkspaceView: View {
                             HStack(spacing: 6) {
                                 Text(leftNum.map(String.init) ?? "")
                                     .frame(width: 28, alignment: .trailing)
-                                    .foregroundColor(Color.white.opacity(0.35))
+                                    .foregroundColor(Chrome.fg.opacity(0.35))
                                 Text(leftDiffMarker(for: row.kind))
                                     .frame(width: 12, alignment: .center)
                                     .foregroundColor(row.kind == .removed || row.kind == .modified ? .red : .clear)
@@ -836,7 +859,7 @@ public struct MainWorkspaceView: View {
                             HStack(spacing: 6) {
                                 Text(rightNum.map(String.init) ?? "")
                                     .frame(width: 28, alignment: .trailing)
-                                    .foregroundColor(Color.white.opacity(0.35))
+                                    .foregroundColor(Chrome.fg.opacity(0.35))
                                 Text(rightDiffMarker(for: row.kind))
                                     .frame(width: 12, alignment: .center)
                                     .foregroundColor(rightDiffMarkerColor(for: row.kind))
@@ -914,7 +937,7 @@ public struct MainWorkspaceView: View {
                     + Text(valPart).foregroundColor(valColor)
             }
         }
-        return Text(line).foregroundColor(Color.white.opacity(0.88))
+        return Text(line).foregroundColor(Chrome.fg.opacity(0.88))
     }
 
     // MARK: - 7. Floating Developer Text Tools Menu (Mockup 2)
@@ -992,14 +1015,14 @@ public struct MainWorkspaceView: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10.5, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Chrome.fg)
                     .frame(width: 14)
                 Image(systemName: "info.circle")
                     .font(.system(size: 11.5))
                     .foregroundColor(.cyan)
                 Text("Current \(currentLang.rawValue)")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(Chrome.fg)
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -1009,10 +1032,10 @@ public struct MainWorkspaceView: View {
         .frame(width: 225)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: NSColor(calibratedRed: 0.15, green: 0.16, blue: 0.20, alpha: 0.98)))
+                .fill((Chrome.isDark ? Color(red: 0.15, green: 0.16, blue: 0.20).opacity(0.98) : Color.white.opacity(0.98)))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                        .stroke(Chrome.fg.opacity(0.16), lineWidth: 1)
                 )
         )
         .shadow(color: .black.opacity(0.5), radius: 14, x: 0, y: 8)
@@ -1029,7 +1052,7 @@ public struct MainWorkspaceView: View {
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10.5, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Chrome.fg)
                         .frame(width: 14)
                 } else {
                     Spacer().frame(width: 14)
@@ -1047,7 +1070,7 @@ public struct MainWorkspaceView: View {
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.white.opacity(0.10) : Color.clear)
+                    .fill(isSelected ? Chrome.fg.opacity(0.10) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -1067,7 +1090,6 @@ public struct MainWorkspaceView: View {
                     SessionManager.shared.savePreferences(preferences)
                     showSettingsSheet = false
                 }
-                .keyboardShortcut(.defaultAction)
             }
             .padding(.bottom, 4)
 
@@ -1079,7 +1101,7 @@ public struct MainWorkspaceView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.black.opacity(0.85))
                     Spacer()
-                    TextField("", text: $preferences.defaultSaveDirectoryPath)
+                    TextField("", text: $store.preferences.defaultSaveDirectoryPath)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12.5))
                         .foregroundColor(.black.opacity(0.75))
@@ -1109,7 +1131,7 @@ public struct MainWorkspaceView: View {
                     Text(preferences.autoCreateDefaultSaveFolder ? "On" : "Off")
                         .font(.system(size: 12.5))
                         .foregroundColor(.gray)
-                    Toggle("", isOn: $preferences.autoCreateDefaultSaveFolder)
+                    Toggle("", isOn: $store.preferences.autoCreateDefaultSaveFolder)
                         .toggleStyle(.switch)
                         .labelsHidden()
                 }
@@ -1133,7 +1155,7 @@ public struct MainWorkspaceView: View {
                 Text(preferences.persistentUnsavedTabs ? "On" : "Off")
                     .font(.system(size: 12.5))
                     .foregroundColor(.gray)
-                Toggle("", isOn: $preferences.persistentUnsavedTabs)
+                Toggle("", isOn: $store.preferences.persistentUnsavedTabs)
                     .toggleStyle(.switch)
                     .labelsHidden()
             }
@@ -1148,7 +1170,7 @@ public struct MainWorkspaceView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.black.opacity(0.85))
                 Spacer()
-                Picker("", selection: $preferences.theme) {
+                Picker("", selection: $store.preferences.theme) {
                     ForEach(AppTheme.allCases) { theme in
                         Text(theme.rawValue).tag(theme)
                     }
@@ -1168,7 +1190,7 @@ public struct MainWorkspaceView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.black.opacity(0.85))
                     Spacer()
-                    Picker("", selection: $preferences.fontFamily) {
+                    Picker("", selection: $store.preferences.fontFamily) {
                         Text("SF Mono").tag("SF Mono")
                         Text("Menlo").tag("Menlo")
                         Text("Monaco").tag("Monaco")
@@ -1197,44 +1219,20 @@ public struct MainWorkspaceView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
 
+            }
+            .background(settingsCardBackground)
+
+            settingsSectionHeader("Notes & Editing")
+            VStack(spacing: 0) {
+                settingsToggle("Live Markdown styling", "Sized headings, bold, checkboxes and tables as you type", $store.preferences.liveMarkdownStyling)
                 Divider().opacity(0.4)
-
-                HStack {
-                    Text("Code Folding")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.black.opacity(0.85))
-                    Spacer()
-                    Text(preferences.enableCodeFolding ? "On" : "Off")
-                        .font(.system(size: 12.5))
-                        .foregroundColor(.gray)
-                    Toggle("", isOn: $preferences.enableCodeFolding)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-
+                settingsToggle("Spell check", nil, $store.preferences.spellCheckEnabled)
                 Divider().opacity(0.4)
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Column Selection")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.black.opacity(0.85))
-                        Text("Option + Drag enables column (block) selection")
-                            .font(.system(size: 11.5))
-                            .foregroundColor(.gray)
-                    }
-                    Spacer()
-                    Text(preferences.enableColumnSelection ? "On" : "Off")
-                        .font(.system(size: 12.5))
-                        .foregroundColor(.gray)
-                    Toggle("", isOn: $preferences.enableColumnSelection)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
+                settingsToggle("Auto-close brackets & quotes", nil, $store.preferences.autoCloseBrackets)
+                Divider().opacity(0.4)
+                settingsToggle("Word wrap", nil, $store.preferences.wordWrap)
+                Divider().opacity(0.4)
+                settingsToggle("Line numbers", nil, $store.preferences.showLineNumbers)
             }
             .background(settingsCardBackground)
         }
@@ -1242,6 +1240,27 @@ public struct MainWorkspaceView: View {
         .frame(width: 600)
         .background(Color(white: 0.94))
         .environment(\.colorScheme, .light)
+    }
+
+    private func settingsToggle(_ title: String, _ detail: String?, _ value: Binding<Bool>) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.black.opacity(0.85))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.gray)
+                }
+            }
+            Spacer()
+            Toggle("", isOn: value)
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     private func settingsSectionHeader(_ title: String) -> some View {
@@ -1252,7 +1271,7 @@ public struct MainWorkspaceView: View {
 
     private var settingsCardBackground: some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color.white.opacity(0.75))
+            .fill(Chrome.fg.opacity(0.75))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
@@ -1262,7 +1281,7 @@ public struct MainWorkspaceView: View {
     // MARK: - 9. Bottom Status Bar (Mockup 1 & 2)
 
     private var modernStatusBar: some View {
-        let tab = activeTabIndex.map { tabs[$0] } ?? DocumentTab(title: "AppEngine.swift")
+        let tab = activeTabIndex.map { tabs[$0] } ?? DocumentTab(title: "Untitled")
         return HStack(spacing: 10) {
             if isDiffMode {
                 let leftTab = tabs.first { $0.id == compareLeftTabID } ?? tabs.first ?? tab
@@ -1277,9 +1296,31 @@ public struct MainWorkspaceView: View {
             } else {
                 Text("Ln \(tab.cursorLine), Col \(tab.cursorColumn)")
                 Text("|").foregroundColor(.secondary.opacity(0.5))
-                Text("\(tab.wordCount) words")
-                Text("|").foregroundColor(.secondary.opacity(0.5))
-                Text("\(tab.characterCount) chars")
+                if (tab.content as NSString).length > CodeEditorView.largeFileThreshold {
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(tab.content.utf8.count), countStyle: .file))
+                    Text("|").foregroundColor(.secondary.opacity(0.5))
+                    Text("Large file mode").foregroundColor(.orange)
+                } else {
+                    Text("\(tab.wordCount) words")
+                    Text("|").foregroundColor(.secondary.opacity(0.5))
+                    Text("\(tab.characterCount) chars")
+                    if tab.selectedCharacterCount > 0 {
+                        Text("(\(tab.selectedCharacterCount) selected)").foregroundColor(Chrome.accent)
+                    }
+                    if tab.language == .markdown {
+                        let tasks = MarkdownService.taskCounts(in: tab.content)
+                        if tasks.open + tasks.done > 0 {
+                            Text("|").foregroundColor(.secondary.opacity(0.5))
+                            Label("\(tasks.done)/\(tasks.open + tasks.done)", systemImage: "checkmark.square")
+                                .help("Completed to-dos")
+                        }
+                    }
+                }
+                if tab.importedFrom != nil {
+                    Text("|").foregroundColor(.secondary.opacity(0.5))
+                    Label("Imported copy — original untouched", systemImage: "lock.doc")
+                        .foregroundColor(Chrome.accent)
+                }
 
                 Spacer()
 
@@ -1298,10 +1339,18 @@ public struct MainWorkspaceView: View {
                 Text("|").foregroundColor(.secondary.opacity(0.5))
 
                 Menu(tab.encoding.rawValue) {
-                    ForEach(DocumentEncoding.allCases) { enc in
-                        Button(enc.rawValue) {
-                            if let idx = activeTabIndex {
-                                tabs[idx].encoding = enc
+                    Section("Reopen with Encoding") {
+                        ForEach(DocumentEncoding.allCases) { enc in
+                            Button(enc.rawValue) { store.reopenActiveTab(with: enc) }
+                        }
+                    }
+                    Section("Convert & Save As") {
+                        ForEach(DocumentEncoding.allCases) { enc in
+                            Button(enc.rawValue) {
+                                if let idx = activeTabIndex {
+                                    tabs[idx].encoding = enc
+                                    tabs[idx].isDirty = true
+                                }
                             }
                         }
                     }
@@ -1316,6 +1365,7 @@ public struct MainWorkspaceView: View {
                         Button(le.rawValue) {
                             if let idx = activeTabIndex {
                                 tabs[idx].lineEnding = le
+                                tabs[idx].isDirty = true
                             }
                         }
                     }
@@ -1338,32 +1388,55 @@ public struct MainWorkspaceView: View {
                 Text("|").foregroundColor(.secondary.opacity(0.5))
 
                 Button {
-                    let dir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
-                    NSWorkspace.shared.open(dir)
+                    store.showCommandPalette = true
                 } label: {
-                    Text("Default: ~/Documents/MacNotepad")
+                    Label("⇧⌘P", systemImage: "command")
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Click to open ~/Documents/MacNotepad in Finder")
+                .help("Command Palette")
             }
         }
         .font(.system(size: 11.5))
-        .foregroundColor(Color.white.opacity(0.75))
+        .foregroundColor(Chrome.fg.opacity(0.75))
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
-        .background(Color(nsColor: NSColor(calibratedRed: 0.12, green: 0.13, blue: 0.16, alpha: 1.0)))
+        .background(Chrome.statusBar)
         .overlay(Divider().opacity(0.35), alignment: .top)
     }
 
     // MARK: - Actions
 
+    private func createNewTab() { store.newTab() }
+    private func closeTab(_ id: UUID) { store.closeTab(id) }
+    private func copyActiveFilePath() { store.copyActiveFilePath() }
+    private func quickSaveActiveTabToDocuments() { store.save() }
+    private func openFilePanel() { store.openFilePanel() }
+    private func saveActiveTabWithPanel() { store.saveAs() }
+    private func flashStatus(_ message: String) { store.flashStatus(message) }
+    private func convertActiveTab(to format: ExportDocumentFormat, useSavePanel: Bool) {
+        store.convertActiveTab(to: format, useSavePanel: useSavePanel)
+    }
+
+    private func handleDroppedFiles(_ providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            handled = true
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                DispatchQueue.main.async { WorkspaceStore.shared.open(urls: [url]) }
+            }
+        }
+        return handled
+    }
+
+
     private func setupDefaultDiffTabs() {
         if compareLeftTabID == nil {
-            compareLeftTabID = tabs.first(where: { $0.title == "config.json" })?.id ?? tabs.first?.id
+            compareLeftTabID = tabs.first?.id
         }
         if compareRightTabID == nil {
-            compareRightTabID = tabs.first(where: { $0.title == "new 1" })?.id ?? tabs.last?.id
+            compareRightTabID = tabs.last?.id
         }
     }
 
@@ -1386,22 +1459,6 @@ public struct MainWorkspaceView: View {
         tabs[leftIdx].content = rightTab.content
         tabs[leftIdx].isDirty = true
         flashStatus("Merged changes into \(tabs[leftIdx].title)")
-    }
-
-    private func createNewTab() {
-        let nextNum = tabs.count + 1
-        let newTab = DocumentTab(title: "new \(nextNum)", content: "", isDirty: true)
-        tabs.append(newTab)
-        activeTabID = newTab.id
-    }
-
-    private func closeTab(_ id: UUID) {
-        tabs.removeAll { $0.id == id }
-        if tabs.isEmpty {
-            createNewTab()
-        } else if activeTabID == id {
-            activeTabID = tabs.last?.id
-        }
     }
 
     private func replaceSingleMatchInActiveTab() {
@@ -1435,108 +1492,6 @@ public struct MainWorkspaceView: View {
         }
     }
 
-    private func copyActiveFilePath() {
-        guard let idx = activeTabIndex else { return }
-        let path = tabs[idx].fileURL?.path ?? "\(preferences.defaultSaveDirectoryPath)/\(tabs[idx].title)"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
-        flashStatus("Copied path to clipboard")
-    }
-
-    private func quickSaveActiveTabToDocuments() {
-        guard let idx = activeTabIndex else { return }
-        do {
-            let savedURL = try SessionManager.shared.quickSaveToDefaultDirectory(
-                tab: &tabs[idx],
-                preferences: preferences
-            )
-            flashStatus("Saved to \(savedURL.lastPathComponent)")
-        } catch {
-            flashStatus("Save failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func openFilePanel() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.directoryURL = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
-
-        if panel.runModal() == .OK {
-            for url in panel.urls {
-                do {
-                    let text = try DocumentConverterService.readDocumentContent(from: url)
-                    let tab = DocumentTab(
-                        title: url.lastPathComponent,
-                        content: text,
-                        fileURL: url,
-                        isDirty: false,
-                        language: SyntaxLanguage.detect(from: url, content: text),
-                        lineEnding: LineEnding.detect(in: text)
-                    )
-                    tabs.append(tab)
-                    activeTabID = tab.id
-                    flashStatus("Opened \(url.lastPathComponent)")
-                } catch {
-                    flashStatus(error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    private func convertActiveTab(to format: ExportDocumentFormat, useSavePanel: Bool) {
-        guard let idx = activeTabIndex else { return }
-        let tab = tabs[idx]
-        let baseName = (tab.title as NSString).deletingPathExtension
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-        let targetFileName = "\(baseName.isEmpty ? "document" : baseName).\(format.fileExtension)"
-        let defaultDir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
-
-        let destinationURL: URL
-        if useSavePanel {
-            let panel = NSSavePanel()
-            panel.directoryURL = defaultDir
-            panel.nameFieldStringValue = targetFileName
-            guard panel.runModal() == .OK, let chosenURL = panel.url else { return }
-            destinationURL = chosenURL
-        } else {
-            destinationURL = defaultDir.appendingPathComponent(targetFileName)
-        }
-
-        do {
-            try DocumentConverterService.export(
-                content: tab.content,
-                title: tab.title,
-                to: destinationURL,
-                format: format,
-                fontFamily: preferences.fontFamily,
-                fontSize: preferences.fontSize
-            )
-            flashStatus("Converted to \(destinationURL.lastPathComponent)")
-        } catch {
-            flashStatus(error.localizedDescription)
-        }
-    }
-
-    private func saveActiveTabWithPanel() {
-        guard let idx = activeTabIndex else { return }
-        let panel = NSSavePanel()
-        panel.directoryURL = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
-        panel.nameFieldStringValue = tabs[idx].title.contains(".")
-            ? tabs[idx].title
-            : "\(tabs[idx].title).\(tabs[idx].language.defaultFileExtension)"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            try? tabs[idx].content.write(to: url, atomically: true, encoding: .utf8)
-            tabs[idx].fileURL = url
-            tabs[idx].title = url.lastPathComponent
-            tabs[idx].isDirty = false
-            flashStatus("Saved \(url.lastPathComponent)")
-        }
-    }
-
     private func chooseDefaultSaveDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -1567,10 +1522,10 @@ public struct MainWorkspaceView: View {
             }
 
             HStack(spacing: 10) {
-                TextField("Search query…", text: $searchOptions.query)
+                TextField("Search query…", text: $store.searchOptions.query)
                     .textFieldStyle(.roundedBorder)
-                Toggle("Match Case", isOn: $searchOptions.matchCase)
-                Toggle("Regex", isOn: $searchOptions.useRegex)
+                Toggle("Match Case", isOn: $store.searchOptions.matchCase)
+                Toggle("Regex", isOn: $store.searchOptions.useRegex)
                 Button("Search Folder") {
                     let dir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
                     findInFilesResults = SearchEngine.findInFiles(directoryURL: dir, options: searchOptions)
@@ -1584,19 +1539,8 @@ public struct MainWorkspaceView: View {
 
             List(findInFilesResults) { match in
                 Button {
-                    if let url = match.fileURL,
-                       let text = try? DocumentConverterService.readDocumentContent(from: url) {
-                        let tab = DocumentTab(
-                            title: url.lastPathComponent,
-                            content: text,
-                            fileURL: url,
-                            isDirty: false,
-                            language: SyntaxLanguage.detect(from: url, content: text),
-                            lineEnding: LineEnding.detect(in: text),
-                            cursorLine: match.lineNumber
-                        )
-                        tabs.append(tab)
-                        activeTabID = tab.id
+                    if let url = match.fileURL {
+                        store.open(urls: [url], line: match.lineNumber)
                         showFindInFilesSheet = false
                     }
                 } label: {
@@ -1619,42 +1563,5 @@ public struct MainWorkspaceView: View {
         .frame(width: 620, height: 400)
     }
 
-    private func handleDroppedFiles(_ providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                handled = true
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                    guard let data = item as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                    DispatchQueue.main.async {
-                        if let text = try? DocumentConverterService.readDocumentContent(from: url) {
-                            let tab = DocumentTab(
-                                title: url.lastPathComponent,
-                                content: text,
-                                fileURL: url,
-                                isDirty: false,
-                                language: SyntaxLanguage.detect(from: url, content: text),
-                                lineEnding: LineEnding.detect(in: text)
-                            )
-                            tabs.append(tab)
-                            activeTabID = tab.id
-                            flashStatus("Opened \(url.lastPathComponent)")
-                        }
-                    }
-                }
-            }
-        }
-        return handled
-    }
-
-    private func flashStatus(_ message: String) {
-        statusBannerMessage = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            if statusBannerMessage == message {
-                statusBannerMessage = nil
-            }
-        }
-    }
 }
 #endif

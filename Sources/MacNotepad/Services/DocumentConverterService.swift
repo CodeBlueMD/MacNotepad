@@ -80,6 +80,44 @@ public struct DocumentConverterService {
         }
     }
 
+    /// Imports a document as Markdown for editing as a note. Word/RTF/ODT formatting (headings, bold,
+    /// italic, lists, tables, links) is carried over; PDFs contribute their text. The source file is never modified.
+    public static func importAsMarkdown(from url: URL) throws -> String {
+        let ext = url.pathExtension.lowercased()
+        if ext == "pdf" {
+            return try extractTextFromPDF(url: url)
+        }
+        if ext == "docx", let markdown = DocxImporter.markdown(from: url) {
+            return markdown
+        }
+        // textutil's HTML keeps Word lists and tables, which AppKit's direct .docx reader flattens.
+        if ext != "rtf", let html = runTextUtil(["-convert", "html", "-stdout", url.path]),
+           let attributed = try? NSAttributedString(
+               data: html,
+               options: [.documentType: NSAttributedString.DocumentType.html,
+                         .characterEncoding: String.Encoding.utf8.rawValue],
+               documentAttributes: nil) {
+            return MarkdownService.markdown(from: attributed)
+        }
+        if let attributed = try? NSAttributedString(url: url, options: [:], documentAttributes: nil) {
+            return MarkdownService.markdown(from: attributed)
+        }
+        return try extractTextFromRichDocument(url: url)
+    }
+
+    private static func runTextUtil(_ arguments: [String]) -> Data? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/textutil")
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return process.terminationStatus == 0 && !data.isEmpty ? data : nil
+    }
+
     /// Extracts text from all pages of a PDF using macOS PDFKit.
     public static func extractTextFromPDF(url: URL) throws -> String {
         guard let pdf = PDFDocument(url: url) else {
@@ -127,8 +165,12 @@ public struct DocumentConverterService {
         to destinationURL: URL,
         format: ExportDocumentFormat,
         fontFamily: String = "SF Mono",
-        fontSize: Double = 13.0
+        fontSize: Double = 13.0,
+        isMarkdown: Bool = false
     ) throws {
+        if isMarkdown, try exportMarkdown(content: content, title: title, to: destinationURL, format: format) {
+            return
+        }
         switch format {
         case .txt, .markdown:
             try content.write(to: destinationURL, atomically: true, encoding: .utf8)
@@ -193,6 +235,59 @@ public struct DocumentConverterService {
                 fontSize: fontSize
             )
         }
+    }
+
+    /// Markdown notes export with real formatting (headings, lists, tables, links) instead of monospaced text.
+    /// Returns false for formats that should fall back to the plain-text exporters.
+    private static func exportMarkdown(content: String, title: String, to url: URL, format: ExportDocumentFormat) throws -> Bool {
+        switch format {
+        case .html:
+            try MarkdownService.htmlDocument(from: content, title: title).write(to: url, atomically: true, encoding: .utf8)
+            return true
+        case .docx:
+            try DocxExporter.write(markdown: content, title: title, to: url)
+            return true
+        case .doc, .rtf, .pdf:
+            guard let attributed = MarkdownService.attributedString(from: content, title: title) else { return false }
+            let range = NSRange(location: 0, length: attributed.length)
+            switch format {
+            case .doc:
+                try attributed.data(from: range, documentAttributes: [.documentType: NSAttributedString.DocumentType.docFormat])
+                    .write(to: url, options: .atomic)
+            case .rtf:
+                try attributed.data(from: range, documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+                    .write(to: url, options: .atomic)
+            default:
+                try renderAttributedPDF(attributed, to: url)
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func renderAttributedPDF(_ attributed: NSAttributedString, to url: URL) throws {
+        let pageSize = CGSize(width: 612, height: 792)
+        let margin: CGFloat = 54
+        var mediaBox = CGRect(origin: .zero, size: pageSize)
+        guard let consumer = CGDataConsumer(url: url as CFURL),
+              let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw DocumentConverterError.exportFailed("Unable to initialize PDF graphics context")
+        }
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
+        var index = 0
+        repeat {
+            context.beginPDFPage(nil)
+            let path = CGPath(rect: CGRect(x: margin, y: margin, width: pageSize.width - margin * 2,
+                                           height: pageSize.height - margin * 2), transform: nil)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(index, 0), path, nil)
+            CTFrameDraw(frame, context)
+            let visible = CTFrameGetVisibleStringRange(frame)
+            context.endPDFPage()
+            if visible.length == 0 { break }
+            index += visible.length
+        } while index < attributed.length
+        context.closePDF()
     }
 
     private static func makeAttributedString(content: String, fontFamily: String, fontSize: Double) -> NSAttributedString {

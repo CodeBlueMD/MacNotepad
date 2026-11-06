@@ -32,13 +32,22 @@ public struct EditorPreferences: Codable, Equatable {
     public var fontFamily: String
     public var fontSize: Double
     public var showLineNumbers: Bool
-    public var enableCodeFolding: Bool
-    public var enableColumnSelection: Bool
     public var wordWrap: Bool
     public var spellCheckEnabled: Bool
     public var zoomPercentage: Int
+    public var showWhitespace: Bool
+    public var autoCloseBrackets: Bool
+    public var showSidebar: Bool
+    public var showPreview: Bool
+    public var showOutline: Bool
+    /// Notion-style live Markdown: sized headings, bold/italic, checkboxes, dimmed syntax markers.
+    public var liveMarkdownStyling: Bool
+    public var recentFilePaths: [String]
 
     public static func defaultSaveDirectoryURL() -> URL {
+        if let override = ProcessInfo.processInfo.environment["MACNOTEPAD_DATA_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true).appendingPathComponent("Notes", isDirectory: true)
+        }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
         return docs.appendingPathComponent("MacNotepad", isDirectory: true)
@@ -53,11 +62,16 @@ public struct EditorPreferences: Codable, Equatable {
         fontFamily: String = "SF Mono",
         fontSize: Double = 13.0,
         showLineNumbers: Bool = true,
-        enableCodeFolding: Bool = true,
-        enableColumnSelection: Bool = true,
-        wordWrap: Bool = false,
+        wordWrap: Bool = true,
         spellCheckEnabled: Bool = false,
-        zoomPercentage: Int = 100
+        zoomPercentage: Int = 100,
+        showWhitespace: Bool = false,
+        autoCloseBrackets: Bool = true,
+        showSidebar: Bool = true,
+        showPreview: Bool = false,
+        showOutline: Bool = false,
+        liveMarkdownStyling: Bool = true,
+        recentFilePaths: [String] = []
     ) {
         self.defaultSaveDirectoryPath = defaultSaveDirectoryPath
         self.autoCreateDefaultSaveFolder = autoCreateDefaultSaveFolder
@@ -67,11 +81,40 @@ public struct EditorPreferences: Codable, Equatable {
         self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.showLineNumbers = showLineNumbers
-        self.enableCodeFolding = enableCodeFolding
-        self.enableColumnSelection = enableColumnSelection
         self.wordWrap = wordWrap
         self.spellCheckEnabled = spellCheckEnabled
         self.zoomPercentage = zoomPercentage
+        self.showWhitespace = showWhitespace
+        self.autoCloseBrackets = autoCloseBrackets
+        self.showSidebar = showSidebar
+        self.showPreview = showPreview
+        self.showOutline = showOutline
+        self.liveMarkdownStyling = liveMarkdownStyling
+        self.recentFilePaths = recentFilePaths
+    }
+
+    /// Tolerant decoding: settings saved by older versions keep their values and new options get defaults.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = EditorPreferences()
+        defaultSaveDirectoryPath = try c.decodeIfPresent(String.self, forKey: .defaultSaveDirectoryPath) ?? d.defaultSaveDirectoryPath
+        autoCreateDefaultSaveFolder = try c.decodeIfPresent(Bool.self, forKey: .autoCreateDefaultSaveFolder) ?? d.autoCreateDefaultSaveFolder
+        persistentUnsavedTabs = try c.decodeIfPresent(Bool.self, forKey: .persistentUnsavedTabs) ?? d.persistentUnsavedTabs
+        autoSaveIntervalSeconds = try c.decodeIfPresent(Int.self, forKey: .autoSaveIntervalSeconds) ?? d.autoSaveIntervalSeconds
+        theme = try c.decodeIfPresent(AppTheme.self, forKey: .theme) ?? d.theme
+        fontFamily = try c.decodeIfPresent(String.self, forKey: .fontFamily) ?? d.fontFamily
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? d.fontSize
+        showLineNumbers = try c.decodeIfPresent(Bool.self, forKey: .showLineNumbers) ?? d.showLineNumbers
+        wordWrap = try c.decodeIfPresent(Bool.self, forKey: .wordWrap) ?? d.wordWrap
+        spellCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .spellCheckEnabled) ?? d.spellCheckEnabled
+        zoomPercentage = try c.decodeIfPresent(Int.self, forKey: .zoomPercentage) ?? d.zoomPercentage
+        showWhitespace = try c.decodeIfPresent(Bool.self, forKey: .showWhitespace) ?? d.showWhitespace
+        autoCloseBrackets = try c.decodeIfPresent(Bool.self, forKey: .autoCloseBrackets) ?? d.autoCloseBrackets
+        showSidebar = try c.decodeIfPresent(Bool.self, forKey: .showSidebar) ?? d.showSidebar
+        showPreview = try c.decodeIfPresent(Bool.self, forKey: .showPreview) ?? d.showPreview
+        showOutline = try c.decodeIfPresent(Bool.self, forKey: .showOutline) ?? d.showOutline
+        liveMarkdownStyling = try c.decodeIfPresent(Bool.self, forKey: .liveMarkdownStyling) ?? d.liveMarkdownStyling
+        recentFilePaths = try c.decodeIfPresent([String].self, forKey: .recentFilePaths) ?? d.recentFilePaths
     }
 }
 
@@ -82,18 +125,26 @@ public final class SessionManager {
     private let fileManager = FileManager.default
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let saveQueue = DispatchQueue(label: "MacNotepad.sessionSave", qos: .utility)
+    private var pendingSessionSave: DispatchWorkItem?
 
     public init() {
         encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
         decoder = JSONDecoder()
     }
 
     /// Application support directory where unsaved tabs and preferences are persisted across launches.
     public var appSupportDirectoryURL: URL {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = base.appendingPathComponent("MacNotepad", isDirectory: true)
+        let dir: URL
+        if let override = ProcessInfo.processInfo.environment["MACNOTEPAD_DATA_DIR"], !override.isEmpty {
+            // Lets demos, screenshots and tests run against a separate session without touching real notes.
+            dir = URL(fileURLWithPath: override, isDirectory: true).appendingPathComponent("Support", isDirectory: true)
+        } else {
+            let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            dir = base.appendingPathComponent("MacNotepad", isDirectory: true)
+        }
         if !fileManager.fileExists(atPath: dir.path) {
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         }
@@ -131,15 +182,12 @@ public final class SessionManager {
                 .replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-")
             let fileName = sanitizedTitle.contains(".") ? sanitizedTitle : "\(sanitizedTitle).\(ext)"
-            targetURL = targetDir.appendingPathComponent(fileName)
+            // Never silently overwrite another file that happens to share the tab's name.
+            targetURL = FileService.uniqueURL(in: targetDir, fileName: fileName)
         }
 
-        let normalized = normalizeLineEndings(tab.content, to: tab.lineEnding)
-        try normalized.write(to: targetURL, atomically: true, encoding: .utf8)
-        tab.fileURL = targetURL
-        tab.title = targetURL.lastPathComponent
-        tab.isDirty = false
-        tab.lastModified = Date()
+        try FileService.write(&tab, to: targetURL)
+        tab.importedFrom = nil
         return targetURL
     }
 
@@ -155,18 +203,74 @@ public final class SessionManager {
 
     /// Saves all open tabs (including unsaved scratch tabs) for instant restoration on next launch.
     public func saveSession(tabs: [DocumentTab]) {
-        guard let data = try? encoder.encode(tabs) else { return }
-        try? data.write(to: sessionFileURL, options: .atomic)
+        pendingSessionSave?.cancel()
+        pendingSessionSave = nil
+        guard let data = try? encoder.encode(Self.compactForSession(tabs)) else { return }
+        let url = sessionFileURL
+        // Same serial queue as the debounced saves, so an in-flight older save can't land after this one.
+        saveQueue.sync { try? data.write(to: url, options: .atomic) }
+    }
+
+    /// Clean tabs backed by a file are restored from disk, so their (possibly huge) text isn't duplicated in the session.
+    static func compactForSession(_ tabs: [DocumentTab]) -> [DocumentTab] {
+        tabs.map { tab in
+            guard !tab.isDirty, tab.fileURL != nil else { return tab }
+            var compact = tab
+            compact.content = ""
+            compact.contentStoredOnDisk = true
+            return compact
+        }
+    }
+
+    /// Debounced background save so typing doesn't encode and write every tab on each keystroke.
+    public func scheduleSessionSave(tabs: [DocumentTab], delay: TimeInterval = 1.0) {
+        pendingSessionSave?.cancel()
+        let url = sessionFileURL
+        let work = DispatchWorkItem {
+            // Own encoder: this runs off the main thread while saveSession may encode on it.
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            guard let data = try? encoder.encode(Self.compactForSession(tabs)) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+        pendingSessionSave = work
+        saveQueue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Restores previous session tabs, or creates initial starter tabs if launching fresh.
     public func loadSession() -> [DocumentTab] {
         if let data = try? Data(contentsOf: sessionFileURL),
-           let decoded = try? decoder.decode([DocumentTab].self, from: data),
+           let decoded = decodeSession(data),
            !decoded.isEmpty {
-            return decoded
+            return decoded.compactMap { tab in
+                guard tab.contentStoredOnDisk == true, let url = tab.fileURL else { return tab }
+                // Reload clean tabs from disk; drop them if the file has since been deleted.
+                guard var reloaded = try? FileService.openTab(at: url, forcedEncoding: tab.encoding) else { return nil }
+                reloaded.id = tab.id
+                reloaded.language = tab.language
+                reloaded.cursorLine = tab.cursorLine
+                reloaded.cursorColumn = tab.cursorColumn
+                return reloaded
+            }
         }
         return Self.defaultStarterTabs()
+    }
+
+    /// Decodes tabs one at a time so a single unreadable tab doesn't lose the rest.
+    /// If nothing can be read, the file is kept aside (session-tabs.unreadable-<date>.json) instead of being overwritten.
+    private func decodeSession(_ data: Data) -> [DocumentTab]? {
+        struct LossyTab: Decodable {
+            let tab: DocumentTab?
+            init(from decoder: Decoder) throws { tab = try? DocumentTab(from: decoder) }
+        }
+        let tabs = (try? decoder.decode([LossyTab].self, from: data))?.compactMap(\.tab)
+        let total = (try? JSONSerialization.jsonObject(with: data) as? [Any])?.count
+        if tabs == nil || (tabs?.count ?? 0) < (total ?? 0) {
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let backup = appSupportDirectoryURL.appendingPathComponent("session-tabs.unreadable-\(stamp).json")
+            try? data.write(to: backup)
+        }
+        return tabs
     }
 
     public func savePreferences(_ prefs: EditorPreferences) {
@@ -204,88 +308,7 @@ public final class SessionManager {
                 isDirty: false,
                 language: .markdown
             ),
-            DocumentTab(
-                title: "config.json",
-                content: """
-                {
-                  "port": 8080,
-                  "host": "localhost",
-                  "cors": "*",
-                  "database": "db_v1",
-                  "logging": false,
-                  "users": [
-                    "admin"
-                  ],
-                  "userss": [
-                    "name": "v1"
-                  ],
-                  "useragent": null
-                }
-                """,
-                isDirty: true,
-                language: .json
-            ),
-            DocumentTab(
-                title: "AppEngine.swift",
-                content: """
-                import Foundation
-
-                class AppEngine {
-                    var isRunning = false
-
-                    func start() {
-                        print("Engine starting...")
-                        print("Engine starting...")
-                        return self
-                    }
-
-                    // Configuration in starting this self target
-                    func isRunman() {
-                        print("Engine starting...")
-                        print("Engine starting...", + AppEngine starting...")
-                    }
-
-                    // Configuration in starting
-                    func start() {
-                        print("Engine starting...")
-                    }
-
-                    // Remembers this application for truth isRunning
-                    func connection() {
-                        print("Engine starting...")
-                    }
-                }
-                """,
-                isDirty: false,
-                language: .swift,
-                cursorLine: 42,
-                cursorColumn: 18
-            ),
-            DocumentTab(
-                title: "new 1",
-                content: """
-                {
-                  "port": 8080,
-                  "host": "0.0.0.0",
-                  "cors": "*",
-                  "database": "db_v2",
-                  "logging": false,
-                  "users": [
-                    "admin"
-                  ],
-                  "logging": true,
-                  "userss": [
-                    "name": "v1"
-                  ],
-                  "timeout": 3000,
-                  "cors": true,
-                  "threads": 16,
-                  "useragent": null
-                }
-                """,
-                isDirty: true,
-                language: .json
-            )
+            DocumentTab(title: "new 1")
         ]
     }
 }

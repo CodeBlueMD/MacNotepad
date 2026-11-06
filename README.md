@@ -1,114 +1,197 @@
-# MacNotepad (`Notebook++` for macOS)
+<p align="center">
+  <img src="docs/screenshots/icon.png" width="128" alt="MacNotepad icon">
+</p>
 
-![Platform](https://img.shields.io/badge/platform-macOS%2013%2B%20(Apple%20Silicon%20%26%20Intel)-blue)
-![Language](https://img.shields.io/badge/Swift-5.9%2B-orange)
-![UI](https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-purple)
-![License](https://img.shields.io/badge/license-MIT-green)
+<h1 align="center">MacNotepad</h1>
 
-**MacNotepad** is a 100% native macOS text and source code editor that merges the **sleek, modern aesthetic of the new Windows 11 Notepad** with the **developer power tools of Notepad++**.
+<p align="center">
+  A native macOS notes app and text editor: Notion-style Markdown notes, Notepad++ editing power, and the clean feel of the new Windows Notepad. It opens Word documents without ever changing them.
+</p>
 
-Designed for instant startup and minimal memory usage on Apple Silicon MacBook Air and MacBook Pro machines, it combines a clean translucent tab interface with persistent unsaved scratch tabs, a default save folder under `~/Documents/MacNotepad`, regex Find & Replace, side-by-side Diff Comparison, and built-in developer text utilities.
+<p align="center">
+  <img src="docs/screenshots/notes-dark.png" alt="MacNotepad with the notes library on the left, a live-styled Markdown note in the middle and the rendered preview on the right">
+</p>
 
----
+## Highlights
 
-## Screenshots
+- **Notes like Notion.** Headings, to-dos, tables, callouts and highlights are styled as you type. A `/` menu inserts blocks, folders act as notebooks, and `#tags` are collected automatically.
+- **Editing like Notepad++.** Multiple cursors, line tools, code folding, a symbol list, regex find and replace, file compare, and encoding and line-ending conversion.
+- **A real Mac app.** Native menu bar, Finder "Open With", Open Recent, a menu-bar quick note, a global hotkey, the `mnp` command, `macnotepad://` links, Apple Intelligence Writing Tools, and Light/Dark/System themes.
+- **Safe with Word files.** A `.docx`, `.rtf`, `.odt` or `.pdf` opens as an editable Markdown copy, and the original file is never written to. Notes export back to Word with real heading styles, lists and tables.
+- **Never lose text.** Unsaved tabs survive quitting and restarting, and files changed by another app reload automatically.
 
-### 1. Modern Windows 11 Notepad UI + Notepad++ Syntax & Floating Regex Find/Replace
-![MacNotepad Main Editor](docs/screenshots/editor-dark.jpg)
+## Notes
 
-### 2. Side-by-Side Split Diff Comparison & Built-in Developer Text Tools
-![MacNotepad Diff and Developer Tools](docs/screenshots/diff-and-tools.jpg)
+<p align="center">
+  <img src="docs/screenshots/notes-light.png" alt="Light theme with the outline panel on the right">
+</p>
 
-### 3. Settings, Session Recovery (Hot Exit), & `~/Documents/MacNotepad` Default Save Folder
-![MacNotepad Settings and Default Save Location](docs/screenshots/settings-default-save.jpg)
+- **Live Markdown.** Notes use a readable proportional font with sized headings, real **bold** and *italic*, ~~strikethrough~~, ==highlights==, `inline code`, links and `#tags`. The Markdown symbols stay visible but dimmed, so the file is always plain Markdown.
+- **To-dos.** Click a `[ ]` to tick it, or press <kbd>⌘</kbd><kbd>↩</kbd>. The status bar and the sidebar show how many are done or still open.
+- **Smart Enter.** Lists, numbered lists, to-dos and quotes continue on the next line. Pressing Enter on an empty item ends the list, and <kbd>Tab</kbd> / <kbd>⇧</kbd><kbd>Tab</kbd> indent or outdent it.
+- **The `/` menu.** Type `/` on an empty line to insert Text, Heading 1–3, To-do, Bulleted or Numbered list, Quote, Callout, Code block, Table, Divider or Today's date.
+- **Notes library** (<kbd>⌃</kbd><kbd>⌘</kbd><kbd>S</kbd>):
+  - Every note in your notes folder (default `~/Documents/MacNotepad`), with folders as notebooks.
+  - Search across titles, tags and note text.
+  - A tag cloud to filter by tag.
+  - Right-click to rename, reveal in Finder, or move to the Trash.
+  - A new note is named after its first heading the first time you save it.
+- **Outline** (<kbd>⌃</kbd><kbd>⌘</kbd><kbd>O</kbd>). Lists the headings of a note (or the functions and types in code). Click one to jump to it.
+- **Preview** (<kbd>⌥</kbd><kbd>⌘</kbd><kbd>P</kbd>). Shows the rendered note side by side and keeps your scroll position while you type.
+- **Quick capture.** Click the menu-bar icon to jot a thought into `Inbox.md`, or press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>N</kbd> in any app to open a new quick note.
 
----
+## Editing
 
-## Key Features
+<p align="center">
+  <img src="docs/screenshots/code-folding.png" alt="Swift file with a folded function and the symbols list">
+</p>
 
-### Modern "New Windows Notepad" Experience
-- **Title-Bar Integrated Rounded Tabs:** Clean pill-style tabs with subtle unsaved indicator dots (`•`), instant `+` scratch tab creation, and drag-free organization.
-- **Persistent Unsaved Tabs ("Hot Exit" Session Recovery):** Close the app at any time without saving dialogs—all open files and untitled scratch tabs (`new 1`, `new 2`…) are automatically snapshotted to `~/Library/Application Support/MacNotepad/` and restored at the exact cursor position on relaunch.
-- **Default Save Location Under `~/Documents/MacNotepad`:** Pre-configured out of the box to auto-create and save into `~/Documents/MacNotepad` via one-click **Quick Save** or `Cmd + S` (customizable in Settings).
-- **Floating Find & Replace Pill Bar:** Drops down smoothly at the top-right of the editor with inline toggles for **Regex (`.*`)**, **Match Case (`Aa`)**, **Whole Word**, capture-group replacements (`$1`, `$2`), and **Find in Files**.
-- **Modern Status Bar:** Live **Line & Column (`Ln X, Col Y`)**, **Word Count**, **Character Count**, **Selection Count**, **Syntax Language**, **Zoom %**, **Line Endings (`LF`/`CRLF`)**, and **Encoding (`UTF-8`)**.
+- **Multiple cursors.**
+  - <kbd>⌘</kbd><kbd>D</kbd> selects the next occurrence; <kbd>⇧</kbd><kbd>⌘</kbd><kbd>L</kbd> selects all of them.
+  - <kbd>⇧</kbd><kbd>⌘</kbd><kbd>I</kbd> puts a cursor at the end of every selected line.
+  - <kbd>⌥</kbd><kbd>⌘</kbd>-click adds a cursor; <kbd>⌥</kbd>-drag makes a column (block) selection.
+  - Typing and deleting apply at every cursor.
+- **Line tools.** Duplicate (<kbd>⇧</kbd><kbd>⌘</kbd><kbd>D</kbd>), delete (<kbd>⇧</kbd><kbd>⌘</kbd><kbd>K</kbd>), move up or down (<kbd>⌥</kbd><kbd>↑</kbd> / <kbd>⌥</kbd><kbd>↓</kbd>), toggle comment (<kbd>⌘</kbd><kbd>/</kbd>), indent and outdent (<kbd>⌘</kbd><kbd>]</kbd> / <kbd>⌘</kbd><kbd>[</kbd>), and go to line (<kbd>⌘</kbd><kbd>L</kbd>).
+- **Code folding.** Fold `{ }` blocks, Python indented blocks and Markdown sections from the gutter, or use <kbd>⌥</kbd><kbd>⌘</kbd><kbd>←</kbd> / <kbd>→</kbd> (add <kbd>⇧</kbd> for Fold All / Unfold All). Folding never changes the text.
+- **Helpers while you type.**
+  - Brackets and quotes close themselves.
+  - New lines are indented to match, with an extra level after an opening `{` or `:`.
+  - The matching bracket and other copies of the selected word are highlighted.
+  - <kbd>⌥</kbd><kbd>⌘</kbd><kbd>I</kbd> shows spaces, tabs and line breaks.
+- **Syntax highlighting.** Swift, Python, JavaScript/TypeScript, JSON, HTML/XML, SQL, CSS, Shell and Markdown. Only the lines you change are recolored, so typing stays instant.
+- **Find & Replace** (<kbd>⌘</kbd><kbd>F</kbd>). Regex, match case, whole word, and `$1` replacements. **Find in Notes Folder** is <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd>.
+- **Compare** (<kbd>⌥</kbd><kbd>⌘</kbd><kbd>D</kbd>). Shows two tabs side by side with added, changed and removed lines, and can merge one into the other.
+- **Text tools.** JSON pretty-print and minify, XML formatting, Base64 and URL encode/decode, sort, remove duplicate lines, remove empty lines, trim whitespace, change case, and SHA-256.
+- **Encodings and line endings.**
+  - Detects UTF-8 (with or without BOM), UTF-16 LE/BE, Windows-1252, Shift JIS and more.
+  - Reopen a file with a different encoding, or convert it to one.
+  - Keeps each file's Windows (CRLF) or Mac/Unix (LF) line endings.
+- **Big files.** Files over about 2 MB open in a fast plain mode with no colouring, so editing stays smooth.
 
-### Notepad++ Power Under the Hood
-- **Syntax Highlighting & Code Folding:** Native `AppKit` `NSTextView` engine with syntax highlighting and collapsible code-folding blocks for Swift, Python, JavaScript/TypeScript, JSON, HTML/XML, Markdown, SQL, CSS, Bash, and Plain Text.
-- **Column / Rectangular Block Selection:** Hold `Option` and drag with the mouse in the editor to select and edit rectangular columns of text.
-- **Side-by-Side Split & Diff View:** Compare any two open tabs side-by-side with automatic LCS line diffing (`+added`, `~modified`, `-removed` highlights).
-- **Built-in Developer Text Tools:**
-  - **JSON:** Pretty Print & Minify (sorted keys, validated)
-  - **XML / HTML:** Pretty Print with automatic tag indentation
-  - **Encoding:** Base64 Encode/Decode, URL Encode/Decode
-  - **Line Operations:** Sort Lines (A→Z, Z→A, by Length), Deduplicate Lines, Remove Empty Lines, Trim Trailing Whitespace
-  - **Case & Hashing:** `UPPERCASE`, `lowercase`, `Title Case`, and `SHA-256` Hash generation (`CryptoKit`)
+### Command palette
 
----
+<p align="center">
+  <img src="docs/screenshots/command-palette.png" alt="Command palette filtering for toggle commands">
+</p>
 
-## Project Architecture
+<kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> lists every command, text tool, language, theme, export format, recent file and open tab. Type a few letters to filter it.
+
+## Word, PDF and other documents
+
+<p align="center">
+  <img src="docs/screenshots/word-import.png" alt="A Word document opened as a Markdown note, with the status bar saying the original is untouched">
+</p>
+
+- **Opening.** A `.docx` opens as a Markdown copy that keeps its headings (from Word's heading styles), **bold**/*italic*/~~strikethrough~~, bulleted, numbered and nested lists, tables and links. `.rtf`, `.odt` and `.doc` files go through macOS's converter, and PDFs open as their text.
+- **The original is never written to.** <kbd>⌘</kbd><kbd>S</kbd> saves the copy as a new `.md` note, and MacNotepad refuses to write plain text over any `.docx`, `.doc`, `.rtf`, `.odt`, `.pdf` or `.pages` file. The test suite checks the original file's SHA-256 hash before and after saving.
+- **Exporting.** Notes export to Word (`.docx`) with real Heading 1–6 styles, numbered lists and tables, so Word's navigation pane works. You can also export to PDF, RTF, HTML (styled like the preview), `.doc`, Markdown or plain text, from **File ▸ Export As** or the toolbar.
+
+## Mac integration
+
+- A full menu bar (File, Edit, Line, Format, View, Tabs, Tools) with standard shortcuts.
+- **Finder "Open With"** for text, code, Markdown, JSON, CSV, logs and more. Word, RTF and PDF files open as safe imported copies.
+- **Open Recent**, a **Dock menu** (New Note, New Quick Note), and drag-and-drop onto the window.
+- When another app changes an open file, a clean tab reloads silently. If you have unsaved edits, a banner lets you choose **Reload** or **Keep My Version**.
+- **Apple Intelligence Writing Tools** (rewrite, proofread, summarize) on macOS 15 and later on supported Macs.
+- **Light, Dark (Mica) or System** theme.
+
+## Automation
+
+**`mnp` command.** Install it from **Tools ▸ Install Command Line Tool**. It asks for your password once to put it in `/usr/local/bin`, otherwise it goes in `~/.local/bin`.
+
+```bash
+mnp notes.md
+```
+
+```bash
+mnp Sources/App.swift:42
+```
+
+```bash
+git log | mnp
+```
+
+**`macnotepad://` links** work from Shortcuts ("Open URLs"), Raycast, Alfred or scripts:
+
+| Link | Does |
+| --- | --- |
+| `macnotepad://new?title=Idea.md&text=Hello` | New note with text |
+| `macnotepad://append?text=Buy%20milk` | Adds a timestamped line to `Inbox.md` |
+| `macnotepad://open?path=/path/to/file&line=12` | Opens a file at a line |
+| `macnotepad://quicknote` | New quick note |
+
+## Keyboard shortcuts
+
+| | |
+| --- | --- |
+| New tab / New note / Quick note | <kbd>⌘</kbd><kbd>N</kbd> · <kbd>⌥</kbd><kbd>⌘</kbd><kbd>N</kbd> · <kbd>⌃</kbd><kbd>⌥</kbd><kbd>N</kbd> (any app) |
+| Save / Save As / Save All | <kbd>⌘</kbd><kbd>S</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>S</kbd> · <kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd> |
+| Command palette | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> |
+| Bold / Italic / Strikethrough / Highlight / Code / Link | <kbd>⌘</kbd><kbd>B</kbd> · <kbd>⌘</kbd><kbd>I</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>X</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>H</kbd> · <kbd>⌘</kbd><kbd>E</kbd> · <kbd>⌘</kbd><kbd>K</kbd> |
+| Text, Heading 1–3, To-do, Bullets, Numbers, Quote | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>0</kbd> – <kbd>7</kbd> |
+| Insert block / Today's date | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>/</kbd> (or type `/`) · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>;</kbd> |
+| Sidebar / Outline / Preview | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>S</kbd> · <kbd>⌃</kbd><kbd>⌘</kbd><kbd>O</kbd> · <kbd>⌥</kbd><kbd>⌘</kbd><kbd>P</kbd> |
+| Next / previous tab, tab 1–9 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>]</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>[</kbd> · <kbd>⌘</kbd><kbd>1</kbd>–<kbd>9</kbd> |
+| Zoom | <kbd>⌘</kbd><kbd>=</kbd> · <kbd>⌘</kbd><kbd>-</kbd> · <kbd>⌘</kbd><kbd>0</kbd> |
+
+## Install
+
+1. Download `MacNotepad-macOS-Universal-DMG` from the latest [GitHub Actions run](../../actions), or build it yourself (below).
+2. Open `MacNotepad.dmg` and drag **MacNotepad.app** to Applications.
+3. The app is ad-hoc signed, so the first time, right-click it and choose **Open**.
+
+Needs macOS 13 Ventura or later, on Apple silicon or Intel.
+
+## Build from source
+
+```bash
+swift test
+```
+
+```bash
+./scripts/package-app.sh
+```
+
+The second command builds `build/MacNotepad.app` (with its icon, file types and URL scheme) and `build/MacNotepad.dmg`.
+
+**Demo library.** `scripts/make-demo-notes.sh <dir>` creates sample notes. Run the app against them without touching your own notes:
+
+```bash
+MACNOTEPAD_DATA_DIR=<dir> build/MacNotepad.app/Contents/MacOS/MacNotepad
+```
+
+The README screenshots were captured this way.
+
+## Where your data lives
+
+| What | Where |
+| --- | --- |
+| Notes and saved files | `~/Documents/MacNotepad` (change it in Settings) |
+| Unsaved tabs and settings | `~/Library/Application Support/MacNotepad/` |
+
+Notes are ordinary `.md` / `.txt` files, so you can sync them with iCloud Drive or Dropbox, or edit them in any other app.
+
+## Project layout
 
 ```text
-MacNotepad/
-├── Package.swift                                  # Swift 5.9+ native macOS package manifest
-├── .github/workflows/macos-build.yml              # Automated GitHub Actions macOS .app & .dmg builder
-├── scripts/package-app.sh                         # Bundles universal binary into MacNotepad.app & .dmg
-├── docs/screenshots/                              # High-resolution UI screenshots
-├── Sources/MacNotepad/
-│   ├── MacNotepadApp.swift                        # @main SwiftUI App entry point
-│   ├── Models/
-│   │   └── DocumentTab.swift                      # Tab state, language detection, word/char counters
-│   ├── Services/
-│   │   ├── SessionManager.swift                   # Hot Exit session persistence & ~/Documents/MacNotepad save manager
-│   │   ├── SyntaxHighlighter.swift                # Language keywords & code folding block detector
-│   │   ├── SearchEngine.swift                     # Regex / Case / Whole-Word Find & Replace + Find in Files
-│   │   ├── DiffEngine.swift                       # Side-by-side LCS line comparison engine
-│   │   └── TextToolsService.swift                 # JSON/XML formatters, Base64/URL, line sorting, SHA-256
-│   └── Views/
-│       ├── MainWorkspaceView.swift                # Unified tab bar, command bar, floating Find, Diff & Settings UI
-│       └── CodeEditorView.swift                   # AppKit NSTextView representable bridge
-└── Tests/MacNotepadTests/
-    └── MacNotepadTests.swift                      # Unit tests for save manager, regex, diff, and text tools
+Sources/MacNotepad/
+├── MacNotepadApp.swift          App, menu bar commands, Finder / URL handling, Dock menu
+├── App/                         Global hotkey, mnp command-line installer
+├── Models/                      DocumentTab, WorkspaceStore (app state), NotesLibrary
+├── Services/                    FileService (encodings, safe saving), DocxImporter / DocxExporter,
+│                                MarkdownService, FoldingService, SyntaxHighlighter, SearchEngine,
+│                                DiffEngine, TextToolsService, SessionManager
+└── Views/                       MainWorkspaceView, EditorTextView (editing commands), CodeEditorView,
+                                 MarkdownStyler, NotesSidebarView, preview & palette, quick capture
+Tests/MacNotepadTests/           Word safety and round trips, encodings, editor commands, Markdown, notes
 ```
 
----
+## Not included yet
 
-## Getting It on Your MacBook Air
-
-### Option 1: Download the Ready-to-Run `.dmg` / `.app` from GitHub Actions (No Xcode Required)
-1. Open the **Actions** tab in this GitHub repository and select the latest **Build macOS App & DMG** workflow run.
-2. Download the **`MacNotepad-macOS-Universal-DMG`** artifact.
-3. Open `MacNotepad.dmg` and drag **`MacNotepad.app`** to your `/Applications` folder.
-
-### Option 2: Build & Run Locally on Your MacBook Air (Xcode or Terminal)
-```bash
-# 1. Clone the repository
-git clone https://github.com/CodeBlueMD/MacNotepad.git
-cd MacNotepad
-
-# 2. Open directly in Xcode (press Cmd+R to run)
-open Package.swift
-
-# OR package MacNotepad.app and MacNotepad.dmg from Terminal:
-chmod +x scripts/package-app.sh
-./scripts/package-app.sh
-open build/MacNotepad.app
-```
-
----
-
-## Keyboard Shortcuts
-
-| Action | Shortcut |
-| :--- | :--- |
-| New Scratch Tab | `Cmd + N` |
-| Open File… | `Cmd + O` |
-| Save to `~/Documents/MacNotepad` | `Cmd + S` |
-| Find & Replace Bar | `Cmd + F` / `Cmd + Option + F` |
-| Column / Block Selection | `Option + Mouse Drag` |
-| Preferences & Default Save Folder | `Cmd + ,` |
-
----
+- Tabs can't be dragged out into a separate window; MacNotepad uses a single main window.
+- Shortcuts integration works through `macnotepad://` links, not native App Intents actions.
+- PDFs import as text only; images inside Word files aren't brought over.
 
 ## License
-Released under the [MIT License](LICENSE).
+
+MIT. See [LICENSE](LICENSE).

@@ -83,7 +83,39 @@ final class MacNotepadTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: htmlURL.path))
     }
 
-    func testCodeFoldingAndFindInFiles() throws {
+    func testCommentsInsideStringsAreNotComments() {
+        let code = "let url = \"https://example.com\" // real comment"
+        var comments: [String] = []
+        var strings: [String] = []
+        SyntaxHighlighter.tokens(in: code, range: NSRange(location: 0, length: (code as NSString).length), language: .swift) { kind, range in
+            let token = (code as NSString).substring(with: range)
+            if kind == .comment { comments.append(token) }
+            if kind == .string { strings.append(token) }
+        }
+        XCTAssertEqual(comments, ["// real comment"])
+        XCTAssertEqual(strings, ["\"https://example.com\""])
+    }
+
+    func testHashIsNotACommentInCSSOrSwift() {
+        for (language, code) in [(SyntaxLanguage.css, "a { color: #fff; }"), (.swift, "#if DEBUG")] {
+            var sawComment = false
+            SyntaxHighlighter.tokens(in: code, range: NSRange(location: 0, length: (code as NSString).length), language: language) { kind, _ in
+                if kind == .comment { sawComment = true }
+            }
+            XCTAssertFalse(sawComment, "\(language) treated # as a comment")
+        }
+    }
+
+    func testLineAndColumnLookup() {
+        let text = "ab\ncde\n" as NSString
+        XCTAssertEqual(TextMetrics.lineAndColumn(at: 0, in: text).line, 1)
+        XCTAssertEqual(TextMetrics.lineAndColumn(at: 5, in: text).line, 2)
+        XCTAssertEqual(TextMetrics.lineAndColumn(at: 5, in: text).column, 3)
+        XCTAssertEqual(TextMetrics.lineAndColumn(at: 7, in: text).line, 3)
+        XCTAssertEqual(TextMetrics.lineAndColumn(at: 7, in: text).column, 1)
+    }
+
+    func testFindInFiles() throws {
         let swiftCode = """
         class Engine {
             func run() {
@@ -91,9 +123,6 @@ final class MacNotepadTests: XCTestCase {
             }
         }
         """
-        let blocks = SyntaxHighlighter.detectFoldableBlocks(in: swiftCode)
-        XCTAssertEqual(blocks.count, 2)
-
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
