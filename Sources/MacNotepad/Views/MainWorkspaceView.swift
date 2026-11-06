@@ -112,29 +112,14 @@ public struct MainWorkspaceView: View {
         }
     }
 
-    // MARK: - 1. Window Title Header (Mockup 1 & 2)
+    // MARK: - 1. Window Title Header (Centered "MacNotepad" only)
 
     private var windowTitleHeader: some View {
-        let activeTitle = activeTabIndex.map { tabs[$0].title } ?? "AppEngine.swift"
-        let leftTitle = tabs.first(where: { $0.id == compareLeftTabID })?.title ?? "server-v1.json"
-        let rightTitle = tabs.first(where: { $0.id == compareRightTabID })?.title ?? "server-v2.json"
-
-        return HStack {
+        HStack {
             Spacer()
-            if isDiffMode {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.text.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Text("\(leftTitle)  |  \(rightTitle) - Diff")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(Color.white.opacity(0.88))
-                }
-            } else {
-                Text("MacNotepad — \(activeTitle)")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(Color.white.opacity(0.88))
-            }
+            Text("MacNotepad")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.88))
             Spacer()
         }
         .frame(height: 28)
@@ -198,10 +183,25 @@ public struct MainWorkspaceView: View {
 
                     Menu("File") {
                         Button("New Scratch Tab (Cmd+N)", action: createNewTab)
-                        Button("Open File… (Cmd+O)", action: openFilePanel)
+                        Button("Open File (.txt, .md, .docx, .pdf, .rtf)… (Cmd+O)", action: openFilePanel)
                         Divider()
                         Button("Quick Save to ~/Documents/MacNotepad (Cmd+S)", action: quickSaveActiveTabToDocuments)
                         Button("Save As…", action: saveActiveTabWithPanel)
+                        Divider()
+                        Menu("Convert / Export Active Tab As…") {
+                            ForEach(ExportDocumentFormat.allCases) { format in
+                                Button(format.rawValue) {
+                                    convertActiveTab(to: format, useSavePanel: true)
+                                }
+                            }
+                        }
+                        Menu("Quick Convert to ~/Documents/MacNotepad") {
+                            ForEach(ExportDocumentFormat.allCases) { format in
+                                Button(format.rawValue) {
+                                    convertActiveTab(to: format, useSavePanel: false)
+                                }
+                            }
+                        }
                         Divider()
                         Button("Preferences & Default Save Location…") { showSettingsSheet = true }
                     }
@@ -253,6 +253,27 @@ public struct MainWorkspaceView: View {
                             .foregroundColor(isDiffMode ? .cyan : Color.white.opacity(0.88))
                     }
                     .buttonStyle(.plain)
+
+                    Menu("Convert / Export") {
+                        Section("Quick Convert to ~/Documents/MacNotepad") {
+                            ForEach(ExportDocumentFormat.allCases) { format in
+                                Button("Export as \(format.rawValue)") {
+                                    convertActiveTab(to: format, useSavePanel: false)
+                                }
+                            }
+                        }
+                        Divider()
+                        Section("Convert & Choose Location…") {
+                            ForEach(ExportDocumentFormat.allCases) { format in
+                                Button("Save As \(format.rawValue)…") {
+                                    convertActiveTab(to: format, useSavePanel: true)
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .fixedSize()
                 }
 
                 Spacer()
@@ -1367,7 +1388,8 @@ public struct MainWorkspaceView: View {
 
         if panel.runModal() == .OK {
             for url in panel.urls {
-                if let text = try? String(contentsOf: url, encoding: .utf8) {
+                do {
+                    let text = try DocumentConverterService.readDocumentContent(from: url)
                     let tab = DocumentTab(
                         title: url.lastPathComponent,
                         content: text,
@@ -1378,8 +1400,46 @@ public struct MainWorkspaceView: View {
                     )
                     tabs.append(tab)
                     activeTabID = tab.id
+                    flashStatus("Opened \(url.lastPathComponent)")
+                } catch {
+                    flashStatus(error.localizedDescription)
                 }
             }
+        }
+    }
+
+    private func convertActiveTab(to format: ExportDocumentFormat, useSavePanel: Bool) {
+        guard let idx = activeTabIndex else { return }
+        let tab = tabs[idx]
+        let baseName = (tab.title as NSString).deletingPathExtension
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let targetFileName = "\(baseName.isEmpty ? "document" : baseName).\(format.fileExtension)"
+        let defaultDir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
+
+        let destinationURL: URL
+        if useSavePanel {
+            let panel = NSSavePanel()
+            panel.directoryURL = defaultDir
+            panel.nameFieldStringValue = targetFileName
+            guard panel.runModal() == .OK, let chosenURL = panel.url else { return }
+            destinationURL = chosenURL
+        } else {
+            destinationURL = defaultDir.appendingPathComponent(targetFileName)
+        }
+
+        do {
+            try DocumentConverterService.export(
+                content: tab.content,
+                title: tab.title,
+                to: destinationURL,
+                format: format,
+                fontFamily: preferences.fontFamily,
+                fontSize: preferences.fontSize
+            )
+            flashStatus("Converted to \(destinationURL.lastPathComponent)")
+        } catch {
+            flashStatus(error.localizedDescription)
         }
     }
 

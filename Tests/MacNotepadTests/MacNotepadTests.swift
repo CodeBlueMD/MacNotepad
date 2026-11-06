@@ -50,4 +50,26 @@ final class MacNotepadTests: XCTestCase {
         XCTAssertEqual(result.summary.modifications, 1)
         XCTAssertEqual(result.summary.additions, 1)
     }
+
+    func testDOCXAndPDFConversionRoundTrip() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sampleContent = "MacNotepad Document Conversion Test\nLine 2: Supports DOCX and PDF!"
+
+        // 1. Export & re-open DOCX
+        let docxURL = tempDir.appendingPathComponent("sample.docx")
+        try DocumentConverterService.export(content: sampleContent, title: "sample", to: docxURL, format: .docx)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: docxURL.path))
+        let importedDOCX = try DocumentConverterService.readDocumentContent(from: docxURL)
+        XCTAssertTrue(importedDOCX.contains("MacNotepad Document Conversion Test"))
+
+        // 2. Export & re-open PDF
+        let pdfURL = tempDir.appendingPathComponent("sample.pdf")
+        try DocumentConverterService.export(content: sampleContent, title: "sample", to: pdfURL, format: .pdf)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path))
+        let importedPDF = try DocumentConverterService.readDocumentContent(from: pdfURL)
+        XCTAssertTrue(importedPDF.contains("MacNotepad Document Conversion Test"))
+    }
 }
