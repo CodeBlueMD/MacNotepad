@@ -274,6 +274,9 @@ public struct CodeEditorView: NSViewRepresentable {
 
     public func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? EditorTextView else { return }
+        // A closing tab gets one last update with a placeholder; leave its text alone.
+        let tabStillOpen = MainActor.assumeIsolated { WorkspaceStore.shared.tabs.contains { $0.id == tab.id } }
+        guard tabStillOpen else { return }
         let coordinator = context.coordinator
         coordinator.parent = self
 

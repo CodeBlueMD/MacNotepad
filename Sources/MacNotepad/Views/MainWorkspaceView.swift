@@ -74,7 +74,7 @@ public struct MainWorkspaceView: View {
                         } else if let idx = activeTabIndex {
                             HStack(spacing: 0) {
                                 CodeEditorView(
-                                    tab: $store.tabs[idx],
+                                    tab: tabBinding(for: tabs[idx].id),
                                     preferences: preferences,
                                     searchHighlights: activeMatches.map(\.range),
                                     focusedMatchRange: focusedMatchRange,
@@ -148,6 +148,17 @@ public struct MainWorkspaceView: View {
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDroppedFiles(providers)
         }
+    }
+
+    /// Binds the editor to its tab by id. An index-based binding crashes when a tab is closed,
+    /// because SwiftUI re-reads the old editor's binding once more before removing it.
+    private func tabBinding(for id: UUID) -> Binding<DocumentTab> {
+        Binding(
+            get: { store.tabs.first { $0.id == id } ?? DocumentTab(id: id, title: "") },
+            set: { updated in
+                if let index = store.tabs.firstIndex(where: { $0.id == id }) { store.tabs[index] = updated }
+            }
+        )
     }
 
     private func externalChangeBanner(for tab: DocumentTab) -> some View {
