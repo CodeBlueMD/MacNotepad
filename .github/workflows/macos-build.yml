@@ -1,0 +1,38 @@
+name: Build macOS App & DMG
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build Native macOS App (Apple Silicon & Intel)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Swift Unit Tests
+        run: swift test -v
+
+      - name: Build Universal Release Binary
+        run: |
+          swift build -c release --arch arm64 --arch x86_64
+
+      - name: Package MacNotepad.app and MacNotepad.dmg
+        run: |
+          chmod +x scripts/package-app.sh
+          ./scripts/package-app.sh
+
+      - name: Upload Ready-to-Run MacNotepad.dmg Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacNotepad-macOS-Universal-DMG
+          path: |
+            build/MacNotepad.dmg
+            build/MacNotepad.app
