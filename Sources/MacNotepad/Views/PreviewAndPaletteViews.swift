@@ -154,8 +154,8 @@ struct CommandPaletteView: View {
         editor("Italic", "⌘I", "italic", #selector(EditorTextView.toggleItalic(_:)))
         editor("Highlight", "⇧⌘H", "highlighter", #selector(EditorTextView.toggleHighlight(_:)))
         editor("Link", "⌘K", "link", #selector(EditorTextView.insertLink(_:)))
-        add("Toggle Notes Sidebar", "⌃⌘S", "sidebar.left") { store.preferences.showSidebar.toggle() }
-        add("Toggle Outline", "⌃⌘O", "list.bullet.indent") { store.preferences.showOutline.toggle() }
+        add("Toggle Notes Library", "⌃⌘S", "sidebar.left") { store.preferences.showSidebar.toggle() }
+        add("Toggle Outline", "⌃⌘O", "list.bullet.indent") { store.toggleOutline() }
         add("Toggle Markdown Preview", "⌥⌘P", "eye") { store.preferences.showPreview.toggle() }
         add("Toggle Live Markdown Styling", "", "textformat") { store.preferences.liveMarkdownStyling.toggle() }
         add("Toggle Word Wrap", "⌥⌘Z", "text.word.spacing") { store.preferences.wordWrap.toggle() }

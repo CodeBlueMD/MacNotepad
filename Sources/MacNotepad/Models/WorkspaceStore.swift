@@ -64,6 +64,24 @@ public final class WorkspaceStore: ObservableObject {
 
     public var activeTab: DocumentTab? { activeTabIndex.map { tabs[$0] } }
 
+    /// The outline shows when turned on, or automatically for Markdown notes with headings.
+    public func isOutlineVisible(for tab: DocumentTab?) -> Bool {
+        guard let tab, !isDiffMode else { return false }
+        if preferences.showOutline { return true }
+        return preferences.autoOutlineForMarkdown && tab.language == .markdown
+            && !MarkdownService.headings(in: tab.content).isEmpty
+    }
+
+    /// Hiding the outline also stops it appearing automatically, so the choice sticks.
+    public func toggleOutline() {
+        if isOutlineVisible(for: activeTab) {
+            preferences.showOutline = false
+            preferences.autoOutlineForMarkdown = false
+        } else {
+            preferences.showOutline = true
+        }
+    }
+
     public var notesDirectory: URL {
         SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
     }

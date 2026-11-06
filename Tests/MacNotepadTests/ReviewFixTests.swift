@@ -114,4 +114,18 @@ final class ReviewFixTests: XCTestCase {
         tv.insertNewline(nil)
         XCTAssertEqual(tv.string, "- a\n- ")
     }
+
+    @MainActor
+    func testNotepadStyleDefaultsAndAutomaticOutline() {
+        XCTAssertFalse(EditorPreferences().showSidebar, "Opens like Notepad: no library panel")
+        let store = WorkspaceStore.shared
+        store.preferences.showOutline = false
+        store.preferences.autoOutlineForMarkdown = true
+        XCTAssertTrue(store.isOutlineVisible(for: DocumentTab(title: "a.md", content: "# Plan\ntext", language: .markdown)))
+        XCTAssertFalse(store.isOutlineVisible(for: DocumentTab(title: "a.md", content: "no headings", language: .markdown)))
+        XCTAssertFalse(store.isOutlineVisible(for: DocumentTab(title: "a.txt", content: "# not markdown", language: .plainText)))
+        store.preferences.showOutline = true
+        XCTAssertTrue(store.isOutlineVisible(for: DocumentTab(title: "a.swift", content: "func a() {}", language: .swift)))
+        store.preferences.showOutline = false
+    }
 }

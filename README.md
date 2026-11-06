@@ -30,13 +30,13 @@
 - **To-dos.** Click a `[ ]` to tick it, or press <kbd>⌘</kbd><kbd>↩</kbd>. The status bar and the sidebar show how many are done or still open.
 - **Smart Enter.** Lists, numbered lists, to-dos and quotes continue on the next line. Pressing Enter on an empty item ends the list, and <kbd>Tab</kbd> / <kbd>⇧</kbd><kbd>Tab</kbd> indent or outdent it.
 - **The `/` menu.** Type `/` on an empty line to insert Text, Heading 1–3, To-do, Bulleted or Numbered list, Quote, Callout, Code block, Table, Divider or Today's date.
-- **Notes library** (<kbd>⌃</kbd><kbd>⌘</kbd><kbd>S</kbd>):
+- **Notes library** (<kbd>⌃</kbd><kbd>⌘</kbd><kbd>S</kbd>). It's off by default, so MacNotepad opens like Notepad, with just a blank page:
   - Every note in your notes folder (default `~/Documents/MacNotepad`), with folders as notebooks.
   - Search across titles, tags and note text.
   - A tag cloud to filter by tag.
   - Right-click to rename, reveal in Finder, or move to the Trash.
   - A new note is named after its first heading the first time you save it.
-- **Outline** (<kbd>⌃</kbd><kbd>⌘</kbd><kbd>O</kbd>). Lists the headings of a note (or the functions and types in code). Click one to jump to it.
+- **Outline.** Appears on its own for Markdown notes that have headings, and lists them so you can click to jump. For code it lists functions and types; <kbd>⌃</kbd><kbd>⌘</kbd><kbd>O</kbd> shows or hides it for any file.
 - **Preview** (<kbd>⌥</kbd><kbd>⌘</kbd><kbd>P</kbd>). Shows the rendered note side by side and keeps your scroll position while you type.
 - **Quick capture.** Click the menu-bar icon to jot a thought into `Inbox.md`, or press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>N</kbd> in any app to open a new quick note.
 
@@ -130,7 +130,7 @@ git log | mnp
 | Bold / Italic / Strikethrough / Highlight / Code / Link | <kbd>⌘</kbd><kbd>B</kbd> · <kbd>⌘</kbd><kbd>I</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>X</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>H</kbd> · <kbd>⌘</kbd><kbd>E</kbd> · <kbd>⌘</kbd><kbd>K</kbd> |
 | Text, Heading 1–3, To-do, Bullets, Numbers, Quote | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>0</kbd> – <kbd>7</kbd> |
 | Insert block / Today's date | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>/</kbd> (or type `/`) · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>;</kbd> |
-| Sidebar / Outline / Preview | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>S</kbd> · <kbd>⌃</kbd><kbd>⌘</kbd><kbd>O</kbd> · <kbd>⌥</kbd><kbd>⌘</kbd><kbd>P</kbd> |
+| Notes library / Outline / Preview | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>S</kbd> · <kbd>⌃</kbd><kbd>⌘</kbd><kbd>O</kbd> · <kbd>⌥</kbd><kbd>⌘</kbd><kbd>P</kbd> |
 | Next / previous tab, tab 1–9 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>]</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>[</kbd> · <kbd>⌘</kbd><kbd>1</kbd>–<kbd>9</kbd> |
 | Zoom | <kbd>⌘</kbd><kbd>=</kbd> · <kbd>⌘</kbd><kbd>-</kbd> · <kbd>⌘</kbd><kbd>0</kbd> |
 

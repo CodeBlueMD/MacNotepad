@@ -107,7 +107,7 @@ public struct MainWorkspaceView: View {
                     }
                 }
 
-                if preferences.showOutline && !isDiffMode, let tab = store.activeTab {
+                if let tab = store.activeTab, store.isOutlineVisible(for: tab) {
                     Divider().opacity(0.5)
                     OutlinePanel(tab: tab) { line in
                         revealRequest = CodeEditorView.RevealRequest(line: line)
@@ -1225,6 +1225,8 @@ public struct MainWorkspaceView: View {
             settingsSectionHeader("Notes & Editing")
             VStack(spacing: 0) {
                 settingsToggle("Live Markdown styling", "Sized headings, bold, checkboxes and tables as you type", $store.preferences.liveMarkdownStyling)
+                Divider().opacity(0.4)
+                settingsToggle("Show outline for Markdown notes", "Appears automatically when a note has headings", $store.preferences.autoOutlineForMarkdown)
                 Divider().opacity(0.4)
                 settingsToggle("Spell check", nil, $store.preferences.spellCheckEnabled)
                 Divider().opacity(0.4)

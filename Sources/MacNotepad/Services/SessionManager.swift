@@ -39,7 +39,10 @@ public struct EditorPreferences: Codable, Equatable {
     public var autoCloseBrackets: Bool
     public var showSidebar: Bool
     public var showPreview: Bool
+    /// Outline shown for every file (set from View ▸ Show Outline).
     public var showOutline: Bool
+    /// Outline appears on its own for Markdown notes that have headings.
+    public var autoOutlineForMarkdown: Bool
     /// Notion-style live Markdown: sized headings, bold/italic, checkboxes, dimmed syntax markers.
     public var liveMarkdownStyling: Bool
     public var recentFilePaths: [String]
@@ -67,9 +70,10 @@ public struct EditorPreferences: Codable, Equatable {
         zoomPercentage: Int = 100,
         showWhitespace: Bool = false,
         autoCloseBrackets: Bool = true,
-        showSidebar: Bool = true,
+        showSidebar: Bool = false,
         showPreview: Bool = false,
         showOutline: Bool = false,
+        autoOutlineForMarkdown: Bool = true,
         liveMarkdownStyling: Bool = true,
         recentFilePaths: [String] = []
     ) {
@@ -89,6 +93,7 @@ public struct EditorPreferences: Codable, Equatable {
         self.showSidebar = showSidebar
         self.showPreview = showPreview
         self.showOutline = showOutline
+        self.autoOutlineForMarkdown = autoOutlineForMarkdown
         self.liveMarkdownStyling = liveMarkdownStyling
         self.recentFilePaths = recentFilePaths
     }
@@ -113,6 +118,7 @@ public struct EditorPreferences: Codable, Equatable {
         showSidebar = try c.decodeIfPresent(Bool.self, forKey: .showSidebar) ?? d.showSidebar
         showPreview = try c.decodeIfPresent(Bool.self, forKey: .showPreview) ?? d.showPreview
         showOutline = try c.decodeIfPresent(Bool.self, forKey: .showOutline) ?? d.showOutline
+        autoOutlineForMarkdown = try c.decodeIfPresent(Bool.self, forKey: .autoOutlineForMarkdown) ?? d.autoOutlineForMarkdown
         liveMarkdownStyling = try c.decodeIfPresent(Bool.self, forKey: .liveMarkdownStyling) ?? d.liveMarkdownStyling
         recentFilePaths = try c.decodeIfPresent([String].self, forKey: .recentFilePaths) ?? d.recentFilePaths
     }

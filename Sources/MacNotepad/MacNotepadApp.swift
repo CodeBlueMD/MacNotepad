@@ -229,9 +229,9 @@ struct MacNotepadCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
-            Toggle("Show Notes Sidebar", isOn: $store.preferences.showSidebar)
+            Toggle("Show Notes Library", isOn: $store.preferences.showSidebar)
                 .keyboardShortcut("s", modifiers: [.command, .control])
-            Toggle("Show Outline", isOn: $store.preferences.showOutline)
+            Button(store.isOutlineVisible(for: store.activeTab) ? "Hide Outline" : "Show Outline") { store.toggleOutline() }
                 .keyboardShortcut("o", modifiers: [.command, .control])
             Toggle("Show Markdown Preview", isOn: $store.preferences.showPreview)
                 .keyboardShortcut("p", modifiers: [.command, .option])
