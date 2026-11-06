@@ -1,6 +1,7 @@
 #if canImport(SwiftUI) && canImport(AppKit)
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 /// Main Windows 11 Notepad x Notepad++ crossover workspace for macOS, matching the 3 design mockups.
 public struct MainWorkspaceView: View {
@@ -22,6 +23,8 @@ public struct MainWorkspaceView: View {
     @State private var showTextToolsMenu: Bool = false
     @State private var lastAppliedTool: TextToolAction = .jsonPrettyPrint
     @State private var showSettingsSheet: Bool = false
+    @State private var showFindInFilesSheet: Bool = false
+    @State private var findInFilesResults: [SearchMatch] = []
     @State private var statusBannerMessage: String?
 
     public init() {}
@@ -110,6 +113,12 @@ public struct MainWorkspaceView: View {
         .sheet(isPresented: $showSettingsSheet) {
             settingsSheetView
         }
+        .sheet(isPresented: $showFindInFilesSheet) {
+            findInFilesSheetView
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDroppedFiles(providers)
+        }
     }
 
     // MARK: - 1. Window Title Header (Centered "MacNotepad" only)
@@ -182,11 +191,15 @@ public struct MainWorkspaceView: View {
                     .help("Open File…")
 
                     Menu("File") {
-                        Button("New Scratch Tab (Cmd+N)", action: createNewTab)
-                        Button("Open File (.txt, .md, .docx, .pdf, .rtf)… (Cmd+O)", action: openFilePanel)
+                        Button("New Scratch Tab", action: createNewTab)
+                            .keyboardShortcut("n", modifiers: .command)
+                        Button("Open File (.txt, .md, .docx, .pdf, .rtf)…", action: openFilePanel)
+                            .keyboardShortcut("o", modifiers: .command)
                         Divider()
-                        Button("Quick Save to ~/Documents/MacNotepad (Cmd+S)", action: quickSaveActiveTabToDocuments)
+                        Button("Quick Save to ~/Documents/MacNotepad", action: quickSaveActiveTabToDocuments)
+                            .keyboardShortcut("s", modifiers: .command)
                         Button("Save As…", action: saveActiveTabWithPanel)
+                            .keyboardShortcut("s", modifiers: [.command, .shift])
                         Divider()
                         Menu("Convert / Export Active Tab As…") {
                             ForEach(ExportDocumentFormat.allCases) { format in
@@ -203,16 +216,30 @@ public struct MainWorkspaceView: View {
                             }
                         }
                         Divider()
+                        Button("Close Active Tab") {
+                            if let id = activeTabID ?? tabs.first?.id {
+                                closeTab(id)
+                            }
+                        }
+                        .keyboardShortcut("w", modifiers: .command)
+                        Divider()
                         Button("Preferences & Default Save Location…") { showSettingsSheet = true }
+                            .keyboardShortcut(",", modifiers: .command)
                     }
                     .menuStyle(.borderlessButton)
                     .font(.system(size: 12.5, weight: .medium))
                     .fixedSize()
 
                     Menu("Edit") {
-                        Button("Find & Replace (Cmd+F)") {
+                        Button("Find & Replace") {
                             withAnimation { showFindBar.toggle() }
                         }
+                        .keyboardShortcut("f", modifiers: .command)
+                        Button("Find in Files (~/Documents/MacNotepad)…") {
+                            runFindInFiles()
+                        }
+                        .keyboardShortcut("f", modifiers: [.command, .shift])
+                        Divider()
                         Button("Replace All Matches") {
                             replaceAllInActiveTab()
                         }
@@ -226,9 +253,17 @@ public struct MainWorkspaceView: View {
                         Toggle("Enable Code Folding", isOn: $preferences.enableCodeFolding)
                         Toggle("Word Wrap", isOn: $preferences.wordWrap)
                         Divider()
+                        Button("Toggle Side-by-Side Diff Compare") {
+                            enterOrToggleDiffMode()
+                        }
+                        .keyboardShortcut("d", modifiers: .command)
+                        Divider()
                         Button("Zoom In (+10%)") { preferences.zoomPercentage = min(200, preferences.zoomPercentage + 10) }
+                            .keyboardShortcut("=", modifiers: .command)
                         Button("Zoom Out (-10%)") { preferences.zoomPercentage = max(50, preferences.zoomPercentage - 10) }
+                            .keyboardShortcut("-", modifiers: .command)
                         Button("Reset Zoom (100%)") { preferences.zoomPercentage = 100 }
+                            .keyboardShortcut("0", modifiers: .command)
                     }
                     .menuStyle(.borderlessButton)
                     .font(.system(size: 12.5, weight: .medium))
@@ -1261,14 +1296,56 @@ public struct MainWorkspaceView: View {
                 .fixedSize()
 
                 Text("|").foregroundColor(.secondary.opacity(0.5))
-                Text(tab.encoding.rawValue)
+
+                Menu(tab.encoding.rawValue) {
+                    ForEach(DocumentEncoding.allCases) { enc in
+                        Button(enc.rawValue) {
+                            if let idx = activeTabIndex {
+                                tabs[idx].encoding = enc
+                            }
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Text("|").foregroundColor(.secondary.opacity(0.5))
-                Text(tab.lineEnding.rawValue)
+
+                Menu(tab.lineEnding.rawValue) {
+                    ForEach(LineEnding.allCases) { le in
+                        Button(le.rawValue) {
+                            if let idx = activeTabIndex {
+                                tabs[idx].lineEnding = le
+                            }
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Text("|").foregroundColor(.secondary.opacity(0.5))
-                Text("\(preferences.zoomPercentage)%")
+
+                Menu("\(preferences.zoomPercentage)%") {
+                    ForEach([50, 75, 90, 100, 110, 125, 150, 175, 200], id: \.self) { pct in
+                        Button("\(pct)%") {
+                            preferences.zoomPercentage = pct
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Text("|").foregroundColor(.secondary.opacity(0.5))
-                Text("Default: ~/Documents/MacNotepad")
-                    .foregroundColor(.secondary)
+
+                Button {
+                    let dir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
+                    NSWorkspace.shared.open(dir)
+                } label: {
+                    Text("Default: ~/Documents/MacNotepad")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Click to open ~/Documents/MacNotepad in Finder")
             }
         }
         .font(.system(size: 11.5))
@@ -1470,6 +1547,105 @@ public struct MainWorkspaceView: View {
             preferences.defaultSaveDirectoryPath = url.path
             SessionManager.shared.savePreferences(preferences)
         }
+    }
+
+    private func runFindInFiles() {
+        let dir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
+        findInFilesResults = SearchEngine.findInFiles(directoryURL: dir, options: searchOptions)
+        showFindInFilesSheet = true
+    }
+
+    private var findInFilesSheetView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Find in Files (\(preferences.defaultSaveDirectoryPath))")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                Button("Close") {
+                    showFindInFilesSheet = false
+                }
+            }
+
+            HStack(spacing: 10) {
+                TextField("Search query…", text: $searchOptions.query)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("Match Case", isOn: $searchOptions.matchCase)
+                Toggle("Regex", isOn: $searchOptions.useRegex)
+                Button("Search Folder") {
+                    let dir = SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
+                    findInFilesResults = SearchEngine.findInFiles(directoryURL: dir, options: searchOptions)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            Text("\(findInFilesResults.count) match(es) found")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.secondary)
+
+            List(findInFilesResults) { match in
+                Button {
+                    if let url = match.fileURL,
+                       let text = try? DocumentConverterService.readDocumentContent(from: url) {
+                        let tab = DocumentTab(
+                            title: url.lastPathComponent,
+                            content: text,
+                            fileURL: url,
+                            isDirty: false,
+                            language: SyntaxLanguage.detect(from: url, content: text),
+                            lineEnding: LineEnding.detect(in: text),
+                            cursorLine: match.lineNumber
+                        )
+                        tabs.append(tab)
+                        activeTabID = tab.id
+                        showFindInFilesSheet = false
+                    }
+                } label: {
+                    HStack {
+                        Text(match.fileURL?.lastPathComponent ?? "file")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(":\(match.lineNumber)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.cyan)
+                        Text(match.linePreview)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(20)
+        .frame(width: 620, height: 400)
+    }
+
+    private func handleDroppedFiles(_ providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                handled = true
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async {
+                        if let text = try? DocumentConverterService.readDocumentContent(from: url) {
+                            let tab = DocumentTab(
+                                title: url.lastPathComponent,
+                                content: text,
+                                fileURL: url,
+                                isDirty: false,
+                                language: SyntaxLanguage.detect(from: url, content: text),
+                                lineEnding: LineEnding.detect(in: text)
+                            )
+                            tabs.append(tab)
+                            activeTabID = tab.id
+                            flashStatus("Opened \(url.lastPathComponent)")
+                        }
+                    }
+                }
+            }
+        }
+        return handled
     }
 
     private func flashStatus(_ message: String) {

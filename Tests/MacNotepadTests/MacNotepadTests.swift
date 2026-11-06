@@ -71,5 +71,36 @@ final class MacNotepadTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path))
         let importedPDF = try DocumentConverterService.readDocumentContent(from: pdfURL)
         XCTAssertTrue(importedPDF.contains("MacNotepad Document Conversion Test"))
+
+        // 3. Export & re-open RTF & HTML
+        let rtfURL = tempDir.appendingPathComponent("sample.rtf")
+        try DocumentConverterService.export(content: sampleContent, title: "sample", to: rtfURL, format: .rtf)
+        let importedRTF = try DocumentConverterService.readDocumentContent(from: rtfURL)
+        XCTAssertTrue(importedRTF.contains("MacNotepad Document Conversion Test"))
+
+        let htmlURL = tempDir.appendingPathComponent("sample.html")
+        try DocumentConverterService.export(content: sampleContent, title: "sample", to: htmlURL, format: .html)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: htmlURL.path))
+    }
+
+    func testCodeFoldingAndFindInFiles() throws {
+        let swiftCode = """
+        class Engine {
+            func run() {
+                print("ok")
+            }
+        }
+        """
+        let blocks = SyntaxHighlighter.detectFoldableBlocks(in: swiftCode)
+        XCTAssertEqual(blocks.count, 2)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try swiftCode.write(to: tempDir.appendingPathComponent("Engine.swift"), atomically: true, encoding: .utf8)
+        let matches = SearchEngine.findInFiles(directoryURL: tempDir, options: SearchOptions(query: "func run"))
+        XCTAssertEqual(matches.count, 1)
+        XCTAssertEqual(matches.first?.lineNumber, 2)
     }
 }

@@ -2,8 +2,36 @@
 import SwiftUI
 import AppKit
 
+/// Custom NSTextView subclass that draws a subtle active-line highlight (Notepad++ style)
+/// and forwards app-level Cmd shortcuts cleanly to SwiftUI even while typing.
+public final class EditorTextView: NSTextView {
+    public var currentLineHighlightColor: NSColor = NSColor.white.withAlphaComponent(0.04)
+
+    public override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+
+        guard let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer else { return }
+
+        let selected = self.selectedRange()
+        let nsString = self.string as NSString
+        guard selected.location <= nsString.length else { return }
+
+        let lineRange = nsString.lineRange(for: NSRange(location: selected.location, length: 0))
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+        var lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        lineRect.origin.x = 0
+        lineRect.origin.y += self.textContainerInset.height
+        lineRect.size.width = self.bounds.width
+        lineRect.size.height = max(19, lineRect.size.height)
+
+        currentLineHighlightColor.setFill()
+        lineRect.fill()
+    }
+}
+
 /// Native AppKit NSTextView wrapped for SwiftUI with rich Notepad++ / Xcode Dark syntax highlighting,
-/// column selection (Option+Drag), zoom scaling, and live cursor/selection tracking.
+/// active-line highlight, dynamic word-wrap, zoom scaling, and live cursor/selection tracking.
 public struct CodeEditorView: NSViewRepresentable {
     @Binding public var tab: DocumentTab
     public var preferences: EditorPreferences
@@ -33,7 +61,7 @@ public struct CodeEditorView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
 
-        let textView = NSTextView()
+        let textView = EditorTextView()
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -47,6 +75,8 @@ public struct CodeEditorView: NSViewRepresentable {
         textView.autoresizingMask = [.width, .height]
         textView.delegate = context.coordinator
 
+        configureWordWrap(on: textView, scrollView: scrollView, wordWrap: preferences.wordWrap)
+
         scrollView.documentView = textView
         context.coordinator.textView = textView
         applyStylingAndHighlighting(to: textView)
@@ -54,7 +84,7 @@ public struct CodeEditorView: NSViewRepresentable {
     }
 
     public func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+        guard let textView = scrollView.documentView as? EditorTextView else { return }
         if textView.string != tab.content {
             context.coordinator.isProgrammaticUpdate = true
             let selectedRanges = textView.selectedRanges
@@ -63,6 +93,7 @@ public struct CodeEditorView: NSViewRepresentable {
             context.coordinator.isProgrammaticUpdate = false
         }
         textView.isContinuousSpellCheckingEnabled = preferences.spellCheckEnabled
+        configureWordWrap(on: textView, scrollView: scrollView, wordWrap: preferences.wordWrap)
         applyStylingAndHighlighting(to: textView)
 
         if let targetRange = focusedMatchRange,
@@ -70,6 +101,24 @@ public struct CodeEditorView: NSViewRepresentable {
            context.coordinator.lastFocusedMatchRange != targetRange {
             context.coordinator.lastFocusedMatchRange = targetRange
             textView.scrollRangeToVisible(targetRange)
+        }
+    }
+
+    private func configureWordWrap(on textView: NSTextView, scrollView: NSScrollView, wordWrap: Bool) {
+        scrollView.hasHorizontalScroller = !wordWrap
+        textView.isHorizontallyResizable = !wordWrap
+        if wordWrap {
+            textView.textContainer?.widthTracksTextView = true
+            textView.textContainer?.containerSize = NSSize(
+                width: max(200, scrollView.contentSize.width),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        } else {
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
         }
     }
 
@@ -81,11 +130,14 @@ public struct CodeEditorView: NSViewRepresentable {
         return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
-    private func applyStylingAndHighlighting(to textView: NSTextView) {
+    private func applyStylingAndHighlighting(to textView: EditorTextView) {
         let isDark = preferences.theme != .light
         textView.backgroundColor = isDark
             ? NSColor(calibratedRed: 0.098, green: 0.106, blue: 0.125, alpha: 1.0) // #191B20
             : NSColor(calibratedRed: 0.98, green: 0.98, blue: 0.99, alpha: 1.0)
+        textView.currentLineHighlightColor = isDark
+            ? NSColor.white.withAlphaComponent(0.035)
+            : NSColor.black.withAlphaComponent(0.035)
         textView.insertionPointColor = isDark ? .systemCyan : .systemBlue
 
         let effectiveSize = max(10, CGFloat(preferences.fontSize) * CGFloat(preferences.zoomPercentage) / 100.0)
@@ -188,11 +240,12 @@ public struct CodeEditorView: NSViewRepresentable {
         }
 
         storage.endEditing()
+        textView.needsDisplay = true
     }
 
     public final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeEditorView
-        weak var textView: NSTextView?
+        weak var textView: EditorTextView?
         var isProgrammaticUpdate = false
         var lastFocusedMatchRange: NSRange?
 
@@ -201,16 +254,18 @@ public struct CodeEditorView: NSViewRepresentable {
         }
 
         public func textDidChange(_ notification: Notification) {
-            guard !isProgrammaticUpdate, let textView = notification.object as? NSTextView else { return }
+            guard !isProgrammaticUpdate, let textView = notification.object as? EditorTextView else { return }
             parent.tab.content = textView.string
             parent.tab.isDirty = true
             parent.tab.lastModified = Date()
             updateCursorPosition(textView)
+            textView.needsDisplay = true
         }
 
         public func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            guard let textView = notification.object as? EditorTextView else { return }
             updateCursorPosition(textView)
+            textView.needsDisplay = true
         }
 
         private func updateCursorPosition(_ textView: NSTextView) {
