@@ -3,10 +3,23 @@ import Foundation
 /// Application appearance theme (Modern Windows 11 Notepad Mica + Notepad++ syntax themes).
 public enum AppTheme: String, Codable, CaseIterable, Identifiable {
     case darkMica = "Dark Mica"
-    case lightMica = "Light Mica"
+    case light = "Light"
+    case dark = "Dark"
     case system = "System"
 
     public var id: String { rawValue }
+
+    /// Backward-compatible decoding so old "Light Mica" maps cleanly.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = (try? container.decode(String.self)) ?? "Dark Mica"
+        switch raw {
+        case "Light Mica", "Light": self = .light
+        case "Dark": self = .dark
+        case "System": self = .system
+        default: self = .darkMica
+        }
+    }
 }
 
 /// Persisted user preferences including the ~/Documents/MacNotepad default save location.
@@ -42,7 +55,7 @@ public struct EditorPreferences: Codable, Equatable {
         showLineNumbers: Bool = true,
         enableCodeFolding: Bool = true,
         enableColumnSelection: Bool = true,
-        wordWrap: Bool = true,
+        wordWrap: Bool = false,
         spellCheckEnabled: Bool = false,
         zoomPercentage: Int = 100
     ) {
@@ -176,17 +189,17 @@ public final class SessionManager {
     public static func defaultStarterTabs() -> [DocumentTab] {
         [
             DocumentTab(
-                title: "welcome.md",
+                title: "release-notes.md",
                 content: """
-                # Welcome to MacNotepad
+                # MacNotepad — Release Notes
                 Modern Windows 11 Notepad design meets Notepad++ power — built natively for macOS.
 
-                ## Highlights
-                - **Persistent Unsaved Tabs (Hot Exit):** Close the app anytime; scratch tabs restore automatically.
-                - **Default Save Location:** Pre-configured to `~/Documents/MacNotepad` (Cmd+S or Quick Save).
-                - **Modern Floating Find & Replace:** Regex (`.*`), Match Case (`Aa`), Whole Word, & Find in Files.
-                - **Side-by-Side Diff & Split View:** Compare any two open tabs with live line diffing.
-                - **Developer Text Tools:** JSON/XML Formatter, Base64/URL Encode, Line Sort/Dedupe, & SHA-256.
+                ## Key Features
+                - **Persistent Unsaved Tabs (Hot Exit):** Scratch tabs are never lost on application close.
+                - **Default Save Location:** Pre-configured to `~/Documents/MacNotepad` (Quick Save or Cmd+S).
+                - **Modern Floating Find & Replace:** Regex (`.*`), Match Case (`Aa`), Match Whole Word, Previous/Next & Replace All.
+                - **Side-by-Side Diff & Merge View:** Compare any two tabs with live line diffing (`+added`, `~modified`, `-removed`).
+                - **Developer Text Tools:** JSON Pretty Print/Minify, Base64 Encode/Decode, Sort Lines, Deduplicate, & SHA-256 Hash.
                 """,
                 isDirty: false,
                 language: .markdown
@@ -195,25 +208,83 @@ public final class SessionManager {
                 title: "config.json",
                 content: """
                 {
-                  "appName": "MacNotepad",
-                  "defaultSaveFolder": "~/Documents/MacNotepad",
-                  "theme": "Dark Mica",
-                  "features": {
-                    "persistentUnsavedTabs": true,
-                    "columnSelection": true,
-                    "codeFolding": true,
-                    "regexSearch": true
-                  }
+                  "port": 8080,
+                  "host": "localhost",
+                  "cors": "*",
+                  "database": "db_v1",
+                  "logging": false,
+                  "users": [
+                    "admin"
+                  ],
+                  "userss": [
+                    "name": "v1"
+                  ],
+                  "useragent": null
                 }
                 """,
                 isDirty: true,
                 language: .json
             ),
             DocumentTab(
+                title: "AppEngine.swift",
+                content: """
+                import Foundation
+
+                class AppEngine {
+                    var isRunning = false
+
+                    func start() {
+                        print("Engine starting...")
+                        print("Engine starting...")
+                        return self
+                    }
+
+                    // Configuration in starting this self target
+                    func isRunman() {
+                        print("Engine starting...")
+                        print("Engine starting...", + AppEngine starting...")
+                    }
+
+                    // Configuration in starting
+                    func start() {
+                        print("Engine starting...")
+                    }
+
+                    // Remembers this application for truth isRunning
+                    func connection() {
+                        print("Engine starting...")
+                    }
+                }
+                """,
+                isDirty: false,
+                language: .swift,
+                cursorLine: 42,
+                cursorColumn: 18
+            ),
+            DocumentTab(
                 title: "new 1",
-                content: "// Scratchpad tab (unsaved changes persist automatically across restarts)\nimport Foundation\n\nfunc greet(_ user: String) -> String {\n    return \"Hello, \\(user)! Saved by default to ~/Documents/MacNotepad\"\n}\n",
+                content: """
+                {
+                  "port": 8080,
+                  "host": "0.0.0.0",
+                  "cors": "*",
+                  "database": "db_v2",
+                  "logging": false,
+                  "users": [
+                    "admin"
+                  ],
+                  "logging": true,
+                  "userss": [
+                    "name": "v1"
+                  ],
+                  "timeout": 3000,
+                  "cors": true,
+                  "threads": 16,
+                  "useragent": null
+                }
+                """,
                 isDirty: true,
-                language: .swift
+                language: .json
             )
         ]
     }
