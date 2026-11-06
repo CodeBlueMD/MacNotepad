@@ -482,18 +482,19 @@ public struct MainWorkspaceView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             // Row 1: Find: [textfield] Aa Match Case  [ ] Match Whole Word  [Previous] [Next]
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Text("Find:")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.secondary)
-                    .frame(width: 52, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(width: 54, alignment: .trailing)
 
                 TextField("Find…", text: $searchOptions.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .frame(width: 150)
+                    .frame(width: 165)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
                             .fill(Color.black.opacity(0.35))
@@ -506,53 +507,74 @@ public struct MainWorkspaceView: View {
                 Button {
                     searchOptions.matchCase.toggle()
                 } label: {
-                    Text("Aa Match Case")
-                        .font(.system(size: 11.5, weight: searchOptions.matchCase ? .semibold : .regular))
-                        .foregroundColor(searchOptions.matchCase ? .cyan : Color.white.opacity(0.78))
+                    HStack(spacing: 4) {
+                        Text("Aa")
+                            .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(searchOptions.matchCase ? .cyan : .secondary)
+                        Text("Match Case")
+                            .font(.system(size: 11.5, weight: searchOptions.matchCase ? .semibold : .regular))
+                            .foregroundColor(searchOptions.matchCase ? .cyan : Color.white.opacity(0.82))
+                    }
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .buttonStyle(.plain)
+                .frame(width: 96, alignment: .leading)
 
                 Toggle("Match Whole Word", isOn: $searchOptions.wholeWord)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11.5))
-                    .foregroundColor(Color.white.opacity(0.78))
+                    .foregroundColor(Color.white.opacity(0.82))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 132, alignment: .leading)
 
-                HStack(spacing: 4) {
-                    Button("Previous") {
+                HStack(spacing: 6) {
+                    Button {
                         guard matchCount > 0 else { return }
                         currentMatchIndex = (currentMatchIndex - 1 + matchCount) % matchCount
+                    } label: {
+                        Text("Previous")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(width: 58)
+                            .padding(.vertical, 4)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.10)))
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11.5))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
 
-                    Button("Next") {
+                    Button {
                         guard matchCount > 0 else { return }
                         currentMatchIndex = (currentMatchIndex + 1) % matchCount
+                    } label: {
+                        Text("Next")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(width: 44)
+                            .padding(.vertical, 4)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.10)))
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11.5))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.08)))
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
 
             // Row 2: Replace: [textfield] .* Regex   3 of 12 matches   [Replace] [All]
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Text("Replace:")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.secondary)
-                    .frame(width: 52, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(width: 54, alignment: .trailing)
 
                 TextField("Replace…", text: $searchOptions.replacement)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .frame(width: 150)
+                    .frame(width: 165)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
                             .fill(Color.black.opacity(0.35))
@@ -565,42 +587,60 @@ public struct MainWorkspaceView: View {
                 Button {
                     searchOptions.useRegex.toggle()
                 } label: {
-                    Text(".* Regex")
-                        .font(.system(size: 11.5, weight: searchOptions.useRegex ? .semibold : .regular))
-                        .foregroundColor(searchOptions.useRegex ? .cyan : Color.white.opacity(0.78))
+                    HStack(spacing: 4) {
+                        Text(".*")
+                            .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(searchOptions.useRegex ? .cyan : .secondary)
+                        Text("Regex")
+                            .font(.system(size: 11.5, weight: searchOptions.useRegex ? .semibold : .regular))
+                            .foregroundColor(searchOptions.useRegex ? .cyan : Color.white.opacity(0.82))
+                    }
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .buttonStyle(.plain)
-
-                Spacer()
+                .frame(width: 96, alignment: .leading)
 
                 Text("\(currentDisplay) of \(matchCount) matches")
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 132, alignment: .trailing)
 
-                HStack(spacing: 4) {
-                    Button("Replace") {
+                HStack(spacing: 6) {
+                    Button {
                         replaceSingleMatchInActiveTab()
+                    } label: {
+                        Text("Replace")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(width: 58)
+                            .padding(.vertical, 4)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
 
-                    Button("All") {
+                    Button {
                         replaceAllInActiveTab()
+                    } label: {
+                        Text("All")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(width: 44)
+                            .padding(.vertical, 4)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.12)))
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(width: 560)
+        .fixedSize(horizontal: true, vertical: true)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color(nsColor: NSColor(calibratedRed: 0.14, green: 0.15, blue: 0.19, alpha: 0.96)))
@@ -620,7 +660,7 @@ public struct MainWorkspaceView: View {
         let displayOffset = tab.wrappedValue.title == "AppEngine.swift" ? 29 : 0
 
         return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 0) {
                 ForEach(1...max(1, tab.wrappedValue.lineCount), id: \.self) { line in
                     let shownLineNumber = line + displayOffset
                     let isFolded = tab.wrappedValue.foldedLineNumbers.contains(line)
@@ -646,7 +686,7 @@ public struct MainWorkspaceView: View {
                             Spacer().frame(width: 10)
                         }
                     }
-                    .frame(height: 18)
+                    .frame(height: 19)
                 }
             }
             .padding(.vertical, 12)
