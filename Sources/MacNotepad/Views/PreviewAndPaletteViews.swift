@@ -161,6 +161,7 @@ struct CommandPaletteView: View {
         add("Toggle Word Wrap", "⌥⌘Z", "text.word.spacing") { store.preferences.wordWrap.toggle() }
         add("Toggle Invisibles", "⌥⌘I", "paragraphsign") { store.preferences.showWhitespace.toggle() }
         add("Toggle Line Numbers", "", "list.number") { store.preferences.showLineNumbers.toggle() }
+        add("Toggle Focus Mode", "⌥⌘F", "rectangle.center.inset.filled") { store.focusMode.toggle() }
         add("Compare Tabs Side by Side", "⌥⌘D", "rectangle.split.2x1") { store.isDiffMode.toggle() }
         for theme in AppTheme.allCases {
             add("Theme: \(theme.rawValue)", "", "circle.lefthalf.filled") { store.preferences.theme = theme }

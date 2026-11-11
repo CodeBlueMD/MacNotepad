@@ -1,4 +1,5 @@
 #if canImport(SwiftUI) && canImport(AppKit)
+import Combine
 import SwiftUI
 import AppKit
 
@@ -13,6 +14,8 @@ enum Chrome {
     @MainActor static var editor: Color { isDark ? Color(red: 0.098, green: 0.106, blue: 0.125) : Color(red: 0.99, green: 0.99, blue: 0.995) }
     @MainActor static var statusBar: Color { isDark ? Color(red: 0.12, green: 0.13, blue: 0.16) : Color(red: 0.94, green: 0.94, blue: 0.95) }
     @MainActor static var sidebar: Color { isDark ? Color(red: 0.11, green: 0.12, blue: 0.145) : Color(red: 0.965, green: 0.965, blue: 0.97) }
+    /// Confirmation green that stays readable on the light toolbar as well as the dark one.
+    @MainActor static var success: Color { isDark ? Color(red: 0.40, green: 0.88, blue: 0.55) : Color(red: 0.05, green: 0.48, blue: 0.22) }
     @MainActor static var accent: Color { isDark ? Color(red: 0.35, green: 0.83, blue: 0.90) : Color(red: 0.04, green: 0.44, blue: 0.64) }
 }
 

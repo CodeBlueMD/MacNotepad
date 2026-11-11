@@ -33,6 +33,9 @@ public final class WorkspaceStore: ObservableObject {
     @Published public var showSettingsSheet = false
     @Published public var showFindInFilesSheet = false
     @Published public var showCommandPalette = false
+    /// Distraction-free writing: hides the toolbar, tab strip, sidebars and status bar, and centres the text column.
+    /// Session-only, so the app always reopens with its normal chrome.
+    @Published public var focusMode = false
     @Published public var findInFilesResults: [SearchMatch] = []
     @Published public var statusBannerMessage: String?
     /// Tabs whose file changed on disk while they had unsaved edits.

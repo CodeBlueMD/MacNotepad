@@ -254,6 +254,8 @@ struct MacNotepadCommands: Commands {
             Button("Actual Size") { store.preferences.zoomPercentage = 100 }
                 .keyboardShortcut("0", modifiers: .command)
             Divider()
+            Toggle("Focus Mode", isOn: $store.focusMode)
+                .keyboardShortcut("f", modifiers: [.command, .option])
             Button("Compare Tabs Side by Side") { store.isDiffMode.toggle() }
                 .keyboardShortcut("d", modifiers: [.command, .option])
         }

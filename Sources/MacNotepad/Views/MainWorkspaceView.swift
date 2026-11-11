@@ -34,8 +34,7 @@ public struct MainWorkspaceView: View {
         return SearchEngine.findMatches(in: tabs[idx].content, options: searchOptions)
     }
 
-    private var focusedMatchRange: NSRange? {
-        let matches = activeMatches
+    private func focusedRange(in matches: [SearchMatch]) -> NSRange? {
         guard !matches.isEmpty else { return nil }
         let safeIdx = min(max(0, currentMatchIndex), matches.count - 1)
         return matches[safeIdx].range
@@ -43,25 +42,34 @@ public struct MainWorkspaceView: View {
 
     @State private var revealRequest: CodeEditorView.RevealRequest?
     @State private var dropTargetTabID: UUID?
+    @State private var telemetry = TelemetryCache()
+
+    /// Distraction-free mode; compare view keeps its own chrome.
+    private var isFocusMode: Bool { store.focusMode && !isDiffMode }
 
     private var showsPreview: Bool {
-        preferences.showPreview && !isDiffMode && store.activeTab?.language == .markdown
+        preferences.showPreview && !isDiffMode && !isFocusMode && store.activeTab?.language == .markdown
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        // Searched once per render; the editor, the focused match and the find bar all read this.
+        let matches = activeMatches
+        return VStack(spacing: 0) {
             windowTitleHeader
-            commandMenuToolbar
+            if !isFocusMode {
+                commandMenuToolbar
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             HStack(spacing: 0) {
-                if preferences.showSidebar && !isDiffMode {
+                if preferences.showSidebar && !isDiffMode && !isFocusMode {
                     NotesSidebarView()
                         .frame(width: 250)
                     Divider().opacity(0.5)
                 }
 
                 VStack(spacing: 0) {
-                    if !isDiffMode {
+                    if !isDiffMode && !isFocusMode {
                         modernTabBar
                     }
                     if let idx = activeTabIndex, store.externallyChangedTabIDs.contains(tabs[idx].id) {
@@ -76,11 +84,14 @@ public struct MainWorkspaceView: View {
                                 CodeEditorView(
                                     tab: tabBinding(for: tabs[idx].id),
                                     preferences: preferences,
-                                    searchHighlights: activeMatches.map(\.range),
-                                    focusedMatchRange: focusedMatchRange,
+                                    searchHighlights: matches.map(\.range),
+                                    focusedMatchRange: focusedRange(in: matches),
                                     revealRequest: revealRequest
                                 )
                                 .id(tabs[idx].id)
+                                // Focus mode: a centred, comfortable measure instead of edge-to-edge lines.
+                                .frame(maxWidth: isFocusMode ? 880 : .infinity)
+                                .frame(maxWidth: .infinity)
 
                                 if showsPreview {
                                     Divider().opacity(0.5)
@@ -92,7 +103,7 @@ public struct MainWorkspaceView: View {
                         }
 
                         if showFindBar && !isDiffMode {
-                            floatingFindReplaceBar
+                            floatingFindReplaceBar(matchCount: matches.count)
                                 .padding(.top, 10)
                                 .padding(.trailing, 18)
                                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -107,7 +118,7 @@ public struct MainWorkspaceView: View {
                     }
                 }
 
-                if let tab = store.activeTab, store.isOutlineVisible(for: tab) {
+                if !isFocusMode, let tab = store.activeTab, store.isOutlineVisible(for: tab) {
                     Divider().opacity(0.5)
                     OutlinePanel(tab: tab) { line in
                         revealRequest = CodeEditorView.RevealRequest(line: line)
@@ -115,8 +126,12 @@ public struct MainWorkspaceView: View {
                 }
             }
 
-            modernStatusBar
+            if !isFocusMode {
+                modernStatusBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.easeInOut(duration: 0.22), value: store.focusMode)
         .background(Chrome.editor)
         .preferredColorScheme(preferences.theme == .system ? nil : (preferences.theme == .light ? .light : .dark))
         .overlay(alignment: .top) {
@@ -138,6 +153,9 @@ public struct MainWorkspaceView: View {
         }
         .onChange(of: store.showFindBar) { open in
             if !open { DispatchQueue.main.async { EditorTextView.focusInMainWindow() } }
+        }
+        .onChange(of: store.focusMode) { _ in
+            DispatchQueue.main.async { EditorTextView.focusInMainWindow() }
         }
         .sheet(isPresented: $store.showSettingsSheet) {
             settingsSheetView
@@ -187,7 +205,23 @@ public struct MainWorkspaceView: View {
             Spacer()
         }
         .frame(height: 28)
-        .background(Chrome.toolbar)
+        .background(isFocusMode ? Chrome.editor : Chrome.toolbar)
+        .overlay(alignment: .trailing) {
+            if isFocusMode {
+                Button { store.focusMode = false } label: {
+                    Label("Exit Focus", systemImage: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Chrome.fg.opacity(0.55))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Chrome.fg.opacity(0.06)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 10)
+                .help("Exit Focus Mode (⌥⌘F)")
+                .transition(.opacity)
+            }
+        }
     }
 
     // MARK: - 2. Command & Menu Toolbar (Mockup 1 & 2)
@@ -322,6 +356,7 @@ public struct MainWorkspaceView: View {
                             ForEach(AppTheme.allCases) { Text($0.rawValue).tag($0) }
                         }
                         Divider()
+                        Toggle("Focus Mode   ⌥⌘F", isOn: $store.focusMode)
                         Button("Compare Tabs Side by Side   ⌥⌘D") {
                             enterOrToggleDiffMode()
                         }
@@ -342,7 +377,7 @@ public struct MainWorkspaceView: View {
                     } label: {
                         Text("Text Tools")
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(showTextToolsMenu ? .cyan : Chrome.fg.opacity(0.88))
+                            .foregroundColor(showTextToolsMenu ? Chrome.accent : Chrome.fg.opacity(0.88))
                     }
                     .buttonStyle(.plain)
 
@@ -351,7 +386,7 @@ public struct MainWorkspaceView: View {
                     } label: {
                         Text("Compare")
                             .font(.system(size: 12.5, weight: .medium))
-                            .foregroundColor(isDiffMode ? .cyan : Chrome.fg.opacity(0.88))
+                            .foregroundColor(isDiffMode ? Chrome.accent : Chrome.fg.opacity(0.88))
                     }
                     .buttonStyle(.plain)
 
@@ -424,10 +459,12 @@ public struct MainWorkspaceView: View {
             if let banner = statusBannerMessage {
                 Text(banner)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.green)
+                    .foregroundColor(Chrome.success)
+                    .lineLimit(1)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.green.opacity(0.15)))
+                    .background(Capsule().fill(Chrome.success.opacity(0.15)))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             if !isDiffMode {
@@ -460,7 +497,7 @@ public struct MainWorkspaceView: View {
                 } label: {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 13))
-                        .foregroundColor(showFindBar && !isDiffMode ? .cyan : .secondary)
+                        .foregroundColor(showFindBar && !isDiffMode ? Chrome.accent : .secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Find & Replace (Cmd+F)")
@@ -472,7 +509,7 @@ public struct MainWorkspaceView: View {
                 } label: {
                     Image(systemName: "doc.badge.gearshape")
                         .font(.system(size: 13))
-                        .foregroundColor(showTextToolsMenu ? .cyan : .secondary)
+                        .foregroundColor(showTextToolsMenu ? Chrome.accent : .secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Developer Text Tools")
@@ -518,113 +555,81 @@ public struct MainWorkspaceView: View {
         .padding(.vertical, 7)
         .background(Chrome.toolbar)
         .overlay(Divider().opacity(0.4), alignment: .bottom)
+        .animation(.easeOut(duration: 0.18), value: statusBannerMessage)
     }
 
     // MARK: - 3. Windows 11 Notepad x Notepad++ Raised Tab Strip (Mockup 1)
 
     private var modernTabBar: some View {
         HStack(spacing: 2) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(tabs) { tab in
-                        let isSelected = (tab.id == (activeTabID ?? tabs.first?.id))
-                        HStack(spacing: 6) {
-                            Text(tab.title)
-                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                                .foregroundColor(
-                                    isSelected
-                                        ? Chrome.fg
-                                        : (tab.title.hasPrefix("new ") ? Chrome.accent : Chrome.fg.opacity(0.62))
-                                )
-                                .lineLimit(1)
-
-                            if tab.isDirty {
-                                Circle()
-                                    .fill(tab.title.hasPrefix("new ") ? Chrome.accent : Chrome.fg.opacity(0.55))
-                                    .frame(width: 6, height: 6)
-                                    .help("Unsaved changes (persisted by Hot Exit)")
-                            }
-
-                            Button {
-                                closeTab(tab.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 8.5, weight: .bold))
-                                    .foregroundColor(.secondary.opacity(isSelected ? 0.9 : 0.5))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            Group {
-                                if isSelected {
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(Chrome.selectedTab)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                                .stroke(Chrome.fg.opacity(0.14), lineWidth: 1)
-                                        )
-                                } else {
-                                    Color.clear
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(tabs) { tab in
+                            let isSelected = (tab.id == (activeTabID ?? tabs.first?.id))
+                            TabChip(tab: tab, isSelected: isSelected) { closeTab(tab.id) }
+                                .id(tab.id)
+                            .overlay(alignment: .leading) {
+                                if dropTargetTabID == tab.id {
+                                    Rectangle().fill(Chrome.accent).frame(width: 2).padding(.vertical, 4)
                                 }
                             }
-                        )
-                        .overlay(alignment: .leading) {
-                            if dropTargetTabID == tab.id {
-                                Rectangle().fill(Chrome.accent).frame(width: 2).padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                activeTabID = tab.id
                             }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            activeTabID = tab.id
-                        }
-                        .help(tab.fileURL?.path ?? (tab.importedFrom.map { "Imported from \($0.lastPathComponent) — saves as a new note" } ?? "Unsaved tab (kept across restarts)"))
-                        .onDrag { NSItemProvider(object: tab.id.uuidString as NSString) }
-                        .onDrop(of: [.text], isTargeted: Binding(
-                            get: { dropTargetTabID == tab.id },
-                            set: { dropTargetTabID = $0 ? tab.id : (dropTargetTabID == tab.id ? nil : dropTargetTabID) }
-                        )) { providers in
-                            providers.first?.loadObject(ofClass: NSString.self) { object, _ in
-                                guard let raw = object as? String, let id = UUID(uuidString: raw) else { return }
-                                DispatchQueue.main.async { store.moveTab(id, before: tab.id) }
+                            .help(tab.fileURL?.path ?? (tab.importedFrom.map { "Imported from \($0.lastPathComponent) — saves as a new note" } ?? "Unsaved tab (kept across restarts)"))
+                            .onDrag { NSItemProvider(object: tab.id.uuidString as NSString) }
+                            .onDrop(of: [.text], isTargeted: Binding(
+                                get: { dropTargetTabID == tab.id },
+                                set: { dropTargetTabID = $0 ? tab.id : (dropTargetTabID == tab.id ? nil : dropTargetTabID) }
+                            )) { providers in
+                                providers.first?.loadObject(ofClass: NSString.self) { object, _ in
+                                    guard let raw = object as? String, let id = UUID(uuidString: raw) else { return }
+                                    DispatchQueue.main.async { store.moveTab(id, before: tab.id) }
+                                }
+                                return true
                             }
-                            return true
-                        }
-                        .contextMenu {
-                            Button("Close Tab") { closeTab(tab.id) }
-                            Button("Close Other Tabs") {
-                                for other in tabs where other.id != tab.id && !other.isDirty { closeTab(other.id) }
-                            }
-                            Divider()
-                            if let url = tab.fileURL {
-                                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                                Button("Copy Path") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(url.path, forType: .string)
+                            .contextMenu {
+                                Button("Close Tab") { closeTab(tab.id) }
+                                Button("Close Other Tabs") {
+                                    for other in tabs where other.id != tab.id && !other.isDirty { closeTab(other.id) }
+                                }
+                                Divider()
+                                if let url = tab.fileURL {
+                                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                                    Button("Copy Path") {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(url.path, forType: .string)
+                                    }
+                                }
+                                Button("Compare with Active Tab") {
+                                    compareLeftTabID = store.activeTabID
+                                    compareRightTabID = tab.id
+                                    isDiffMode = true
                                 }
                             }
-                            Button("Compare with Active Tab") {
-                                compareLeftTabID = store.activeTabID
-                                compareRightTabID = tab.id
-                                isDiffMode = true
-                            }
                         }
-                    }
 
-                    Button(action: createNewTab) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
+                        Button(action: createNewTab) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
+                        .help("New Scratch Tab")
                     }
-                    .buttonStyle(.plain)
-                    .help("New Scratch Tab")
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .padding(.bottom, 3)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 3)
+                // Keep the active tab in view when it is opened or switched to from a menu or shortcut.
+                .onChange(of: store.activeTabID) { id in
+                    guard let id else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id) }
+                }
             }
             Spacer()
         }
@@ -634,8 +639,7 @@ public struct MainWorkspaceView: View {
 
     // MARK: - 4. Floating Two-Row Find & Replace Panel (Mockup 1)
 
-    private var floatingFindReplaceBar: some View {
-        let matchCount = activeMatches.count
+    private func floatingFindReplaceBar(matchCount: Int) -> some View {
         let currentDisplay = matchCount == 0 ? 0 : (min(currentMatchIndex, matchCount - 1) + 1)
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -658,7 +662,7 @@ public struct MainWorkspaceView: View {
                             .fill(Chrome.fg.opacity(Chrome.isDark ? 0.0 : 0.04)).background(RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(Chrome.isDark ? 0.35 : 0.0)))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 5)
-                                    .stroke(Color.cyan.opacity(0.75), lineWidth: 1.2)
+                                    .stroke(Chrome.accent.opacity(0.75), lineWidth: 1.2)
                             )
                     )
 
@@ -668,10 +672,10 @@ public struct MainWorkspaceView: View {
                     HStack(spacing: 4) {
                         Text("Aa")
                             .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(searchOptions.matchCase ? .cyan : .secondary)
+                            .foregroundColor(searchOptions.matchCase ? Chrome.accent : .secondary)
                         Text("Match Case")
                             .font(.system(size: 11.5, weight: searchOptions.matchCase ? .semibold : .regular))
-                            .foregroundColor(searchOptions.matchCase ? .cyan : Chrome.fg.opacity(0.82))
+                            .foregroundColor(searchOptions.matchCase ? Chrome.accent : Chrome.fg.opacity(0.82))
                     }
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -748,10 +752,10 @@ public struct MainWorkspaceView: View {
                     HStack(spacing: 4) {
                         Text(".*")
                             .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(searchOptions.useRegex ? .cyan : .secondary)
+                            .foregroundColor(searchOptions.useRegex ? Chrome.accent : .secondary)
                         Text("Regex")
                             .font(.system(size: 11.5, weight: searchOptions.useRegex ? .semibold : .regular))
-                            .foregroundColor(searchOptions.useRegex ? .cyan : Chrome.fg.opacity(0.82))
+                            .foregroundColor(searchOptions.useRegex ? Chrome.accent : Chrome.fg.opacity(0.82))
                     }
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -852,7 +856,7 @@ public struct MainWorkspaceView: View {
                             Button(t.title) { compareRightTabID = t.id }
                         }
                     } label: {
-                        Text("\(rightTab.title == "new 1" ? "server-v2.json" : rightTab.title) (Modified)")
+                        Text("\(rightTab.title) (Modified)")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(Chrome.fg.opacity(0.88))
                     }
@@ -870,8 +874,8 @@ public struct MainWorkspaceView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(comparison.rows.enumerated()), id: \.element.id) { idx, row in
-                        let leftNum = row.leftLineNumber.map { $0 + 9 }
-                        let rightNum = row.rightLineNumber.map { $0 + 9 }
+                        let leftNum = row.leftLineNumber
+                        let rightNum = row.rightLineNumber
                         HStack(spacing: 0) {
                             // Left Pane Row
                             HStack(spacing: 6) {
@@ -1054,7 +1058,7 @@ public struct MainWorkspaceView: View {
                     .frame(width: 14)
                 Image(systemName: "info.circle")
                     .font(.system(size: 11.5))
-                    .foregroundColor(.cyan)
+                    .foregroundColor(Chrome.accent)
                 Text("Current \(currentLang.rawValue)")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Chrome.fg)
@@ -1098,7 +1102,7 @@ public struct MainWorkspaceView: View {
                     .frame(width: 16)
                 Text(title)
                     .font(.system(size: 12.5))
-                    .foregroundColor(.white.opacity(0.92))
+                    .foregroundColor(Chrome.fg.opacity(0.92))
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -1308,7 +1312,7 @@ public struct MainWorkspaceView: View {
 
     private var settingsCardBackground: some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Chrome.fg.opacity(0.75))
+            .fill(Color.white.opacity(0.75))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
@@ -1338,14 +1342,15 @@ public struct MainWorkspaceView: View {
                     Text("|").foregroundColor(.secondary.opacity(0.5))
                     Text("Large file mode").foregroundColor(.orange)
                 } else {
-                    Text("\(tab.wordCount) words")
+                    let counts = telemetry.counts(for: tab)
+                    Text("\(counts.words) words")
                     Text("|").foregroundColor(.secondary.opacity(0.5))
-                    Text("\(tab.characterCount) chars")
+                    Text("\(counts.characters) chars")
                     if tab.selectedCharacterCount > 0 {
                         Text("(\(tab.selectedCharacterCount) selected)").foregroundColor(Chrome.accent)
                     }
                     if tab.language == .markdown {
-                        let tasks = MarkdownService.taskCounts(in: tab.content)
+                        let tasks = counts.tasks
                         if tasks.open + tasks.done > 0 {
                             Text("|").foregroundColor(.secondary.opacity(0.5))
                             Label("\(tasks.done)/\(tasks.open + tasks.done)", systemImage: "checkmark.square")
@@ -1434,8 +1439,10 @@ public struct MainWorkspaceView: View {
                 .help("Command Palette")
             }
         }
-        .font(.system(size: 11.5))
-        .foregroundColor(Chrome.fg.opacity(0.75))
+        // Fixed-width digits: Ln/Col and the counts no longer nudge the rest of the bar as they change.
+        .font(.system(size: 11.5).monospacedDigit())
+        .foregroundColor(Chrome.fg.opacity(0.78))
+        .lineLimit(1)
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .background(Chrome.statusBar)
@@ -1586,7 +1593,7 @@ public struct MainWorkspaceView: View {
                             .font(.system(size: 12, weight: .semibold))
                         Text(":\(match.lineNumber)")
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.cyan)
+                            .foregroundColor(Chrome.accent)
                         Text(match.linePreview)
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(.secondary)
@@ -1600,5 +1607,93 @@ public struct MainWorkspaceView: View {
         .frame(width: 620, height: 400)
     }
 
+}
+
+/// One tab in the strip, Windows 11 Notepad style: hover wash, raised selected tab, and a single trailing slot
+/// that shows the unsaved dot until the pointer arrives, then the close button.
+private struct TabChip: View {
+    let tab: DocumentTab
+    let isSelected: Bool
+    let close: () -> Void
+    @State private var hovering = false
+    @State private var hoveringClose = false
+
+    private var isScratch: Bool { tab.title.hasPrefix("new ") }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(tab.title)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? Chrome.fg : (isScratch ? Chrome.accent : Chrome.fg.opacity(hovering ? 0.85 : 0.66)))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 200, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Button(action: close) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Chrome.fg.opacity(hoveringClose ? 0.12 : 0))
+                    if tab.isDirty && !hovering {
+                        Circle()
+                            .fill(isScratch ? Chrome.accent : Chrome.fg.opacity(0.6))
+                            .frame(width: 6, height: 6)
+                    } else {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundColor(Chrome.fg.opacity(hoveringClose ? 0.9 : 0.55))
+                            .opacity(isSelected || hovering ? 1 : 0)
+                    }
+                }
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hoveringClose = $0 }
+            .help(tab.isDirty ? "Unsaved changes (kept by Hot Exit) — click to close" : "Close Tab")
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 9)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isSelected ? Chrome.selectedTab : Chrome.fg.opacity(hovering ? 0.06 : 0))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(Chrome.fg.opacity(isSelected ? 0.14 : 0), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(isSelected ? (Chrome.isDark ? 0.25 : 0.08) : 0), radius: 2, y: 1)
+        )
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: hoveringClose)
+    }
+}
+
+/// Word, character and to-do counts for the status bar. The bar re-renders on every caret move, so the counts
+/// are kept until the text itself changes instead of re-scanning the whole document each time.
+@MainActor
+private final class TelemetryCache {
+    struct Counts {
+        var words = 0
+        var characters = 0
+        var tasks: (open: Int, done: Int) = (0, 0)
+    }
+
+    private var tabID: UUID?
+    private var content = ""
+    private var isMarkdown = false
+    private var cached = Counts()
+
+    func counts(for tab: DocumentTab) -> Counts {
+        let markdown = tab.language == .markdown
+        if tab.id == tabID, markdown == isMarkdown, tab.content == content { return cached }
+        tabID = tab.id
+        content = tab.content
+        isMarkdown = markdown
+        cached = Counts(words: tab.wordCount, characters: tab.characterCount,
+                        tasks: markdown ? MarkdownService.taskCounts(in: tab.content) : (0, 0))
+        return cached
+    }
 }
 #endif
