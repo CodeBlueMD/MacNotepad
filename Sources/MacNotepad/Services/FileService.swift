@@ -108,11 +108,13 @@ public enum FileService {
 
     /// Writes a tab to `url`, refusing to clobber formatted documents with plain text.
     public static func write(_ tab: inout DocumentTab, to url: URL) throws {
-        if isRichDocument(url) {
-            throw FileServiceError.refusingToOverwriteRichDocument(url.lastPathComponent)
+        // Check the symlink target too: `notes.txt -> Report.docx` must not be a way around the guard.
+        let target = url.resolvingSymlinksInPath()
+        if isRichDocument(url) || isRichDocument(target) {
+            throw FileServiceError.refusingToOverwriteRichDocument(target.lastPathComponent)
         }
         // Write through symlinks (e.g. dotfiles linked into a repo) instead of replacing the link.
-        try encodedData(for: tab).write(to: url.resolvingSymlinksInPath(), options: .atomic)
+        try encodedData(for: tab).write(to: target, options: .atomic)
         tab.fileURL = url
         tab.title = url.lastPathComponent
         tab.isDirty = false

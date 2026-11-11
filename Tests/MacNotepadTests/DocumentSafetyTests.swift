@@ -133,6 +133,16 @@ final class DocumentSafetyTests: XCTestCase {
         XCTAssertEqual(try sha(docx), originalHash)
     }
 
+    func testSymlinkToRichDocumentCannotBypassTheOverwriteGuard() throws {
+        let docx = try makeWordDocument()
+        let originalHash = try sha(docx)
+        let link = tempDir.appendingPathComponent("innocent.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: docx)
+        var tab = DocumentTab(title: "x", content: "plain text")
+        XCTAssertThrowsError(try FileService.write(&tab, to: link))
+        XCTAssertEqual(try sha(docx), originalHash, "The .docx behind the symlink must be untouched")
+    }
+
     func testMarkdownExportsToFormattedWordAndBack() throws {
         let markdown = "# Meeting Notes\n\nSome **important** text.\n\n- [ ] Follow up\n- Second bullet\n\n1. one\n2. two\n3. three\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n"
         let docx = tempDir.appendingPathComponent("Export.docx")
