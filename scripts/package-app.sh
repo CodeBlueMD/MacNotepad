@@ -100,22 +100,6 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
                 <string>net.daringfireball.markdown</string>
             </array>
         </dict>
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Document to Import as Note</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>org.openxmlformats.wordprocessingml.document</string>
-                <string>com.microsoft.word.doc</string>
-                <string>public.rtf</string>
-                <string>org.oasis-open.opendocument.text</string>
-                <string>com.adobe.pdf</string>
-            </array>
-        </dict>
     </array>
     <key>UTImportedTypeDeclarations</key>
     <array>

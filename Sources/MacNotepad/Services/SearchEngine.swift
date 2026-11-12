@@ -94,6 +94,14 @@ public struct SearchEngine {
         return (updated, count)
     }
 
+    /// Replaces a single match range in the text buffer.
+    public static func replace(in text: String, targetRange: NSRange, with replacement: String) -> String {
+        let nsText = text as NSString
+        guard targetRange.location != NSNotFound,
+              targetRange.location + targetRange.length <= nsText.length else { return text }
+        return nsText.replacingCharacters(in: targetRange, with: replacement)
+    }
+
     /// Notepad++ style "Find in Files" across a directory.
     public static func findInFiles(directoryURL: URL, options: SearchOptions) -> [SearchMatch] {
         guard !options.query.isEmpty else { return [] }

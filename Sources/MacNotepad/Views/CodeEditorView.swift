@@ -41,7 +41,7 @@ final class LineNumberRulerView: NSRulerView {
         guard let textView = editor,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer,
-              let storage = textView.textStorage else { return }
+              textView.textStorage != nil else { return }
 
         let text = textView.string as NSString
         let inset = textView.textContainerInset
@@ -50,8 +50,6 @@ final class LineNumberRulerView: NSRulerView {
         let visibleChars = layoutManager.characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil)
         let cursorLine = TextMetrics.lineNumber(at: textView.selectedRange().location, in: text)
         let yOffset = convert(NSPoint.zero, from: textView).y + inset.height
-        let foldStarts = Dictionary(textView.foldRegions.map { ($0.startLine, $0) }, uniquingKeysWith: { a, _ in a })
-        let hasFolds = textView.hasFolds
 
         var lineNumber = TextMetrics.lineNumber(at: visibleChars.location, in: text)
         var index = text.lineRange(for: NSRange(location: visibleChars.location, length: 0)).location
@@ -66,40 +64,9 @@ final class LineNumberRulerView: NSRulerView {
                 let y = fragmentRect.minY + yOffset + min(fragmentRect.height - size.height, 6) / 2
                 label.draw(at: NSPoint(x: ruleThickness - size.width - 16, y: y), withAttributes: attributes)
             }
-            if let region = foldStarts[number] {
-                let folded = textView.isFolded(region)
-                let symbol = NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down", accessibilityDescription: nil)
-                let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
-                if let image = symbol?.withSymbolConfiguration(config) {
-                    let size = image.size
-                    let lineHeight = min(fragmentRect.height, numberFont.pointSize * 1.6)
-                    let origin = NSPoint(x: ruleThickness - size.width - 4, y: fragmentRect.minY + yOffset + (lineHeight - size.height) / 2)
-                    (folded ? currentNumberColor : numberColor).set()
-                    image.isTemplate = true
-                    let tinted = NSImage(size: size, flipped: false) { r in
-                        image.draw(in: r)
-                        (folded ? self.currentNumberColor : self.numberColor).set()
-                        r.fill(using: .sourceAtop)
-                        return true
-                    }
-                    tinted.draw(in: NSRect(origin: origin, size: size))
-                }
-            }
         }
 
         while index < NSMaxRange(visibleChars) {
-            if hasFolds, index > 0, let _ = storage.attribute(.macNotepadFolded, at: index - 1, effectiveRange: nil),
-               storage.attribute(.macNotepadFolded, at: index, effectiveRange: nil) != nil {
-                // Skip a hidden block in one step, counting the lines inside it.
-                var hidden = NSRange()
-                _ = storage.attribute(.macNotepadFolded, at: index, longestEffectiveRange: &hidden, in: NSRange(location: 0, length: storage.length))
-                let skipped = text.substring(with: NSRange(location: index, length: NSMaxRange(hidden) - index)).filter { $0 == "\n" }.count
-                lineNumber += skipped
-                index = text.lineRange(for: NSRange(location: NSMaxRange(hidden), length: 0)).location
-                index = NSMaxRange(text.lineRange(for: NSRange(location: index, length: 0)))
-                lineNumber += 1
-                continue
-            }
             let lineRange = text.lineRange(for: NSRange(location: index, length: 0))
             let glyphIndex = layoutManager.glyphIndexForCharacter(at: lineRange.location)
             let fragmentRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
@@ -120,15 +87,10 @@ final class LineNumberRulerView: NSRulerView {
         let containerPoint = NSPoint(x: 0, y: point.y - textView.textContainerInset.height)
         let glyph = layoutManager.glyphIndex(for: containerPoint, in: container)
         let char = layoutManager.characterIndexForGlyph(at: glyph)
-        let line = TextMetrics.lineNumber(at: char, in: textView.string as NSString)
-        if textView.foldRegions.contains(where: { $0.startLine == line }) {
-            textView.toggleFold(startingAtLine: line)
-        } else {
-            // Click on a line number selects the line.
-            let range = (textView.string as NSString).lineRange(for: NSRange(location: char, length: 0))
-            textView.setSelectedRange(range)
-            textView.window?.makeFirstResponder(textView)
-        }
+        // Click on a line number selects the line.
+        let range = (textView.string as NSString).lineRange(for: NSRange(location: char, length: 0))
+        textView.setSelectedRange(range)
+        textView.window?.makeFirstResponder(textView)
     }
 }
 
@@ -248,7 +210,6 @@ public struct CodeEditorView: NSViewRepresentable {
         }()
         textView.textStorage?.delegate = coordinator
         textView.delegate = coordinator
-        textView.onFoldingChanged = { [weak ruler] in ruler?.needsDisplay = true }
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
@@ -266,7 +227,6 @@ public struct CodeEditorView: NSViewRepresentable {
         textView.setSelectedRange(NSRange(location: caret, length: 0))
         coordinator.isProgrammaticUpdate = false
         coordinator.lastSyncedContent = tab.content
-        coordinator.refreshFoldRegions()
         textView.scrollRangeToVisible(NSRange(location: caret, length: 0))
         applySearchHighlights(to: textView)
         return scrollView
@@ -282,7 +242,7 @@ public struct CodeEditorView: NSViewRepresentable {
 
         // `lastSyncedContent` shares storage with what the editor last published, so this is usually O(1).
         if tab.content != coordinator.lastSyncedContent {
-            // Programmatic edit (text tools, replace all, reload): route through the text system so it is undoable.
+            // Programmatic edit (replace all, reload): route through the text system so it is undoable.
             coordinator.flushPendingSync()
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             let selection = textView.selectedRange()
@@ -295,7 +255,6 @@ public struct CodeEditorView: NSViewRepresentable {
             coordinator.lastSyncedContent = tab.content
             let length = (textView.string as NSString).length
             textView.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
-            coordinator.refreshFoldRegions()
         }
 
         textView.language = tab.language
@@ -310,7 +269,7 @@ public struct CodeEditorView: NSViewRepresentable {
             coordinator.ruler?.needsDisplay = true
         }
         configureWordWrap(on: textView, scrollView: scrollView, wordWrap: preferences.wordWrap)
-        if applyStyle(to: textView, coordinator: coordinator) { coordinator.refreshFoldRegions() }
+        _ = applyStyle(to: textView, coordinator: coordinator)
         applySearchHighlights(to: textView)
 
         if let targetRange = focusedMatchRange,
@@ -445,7 +404,6 @@ public struct CodeEditorView: NSViewRepresentable {
         /// The content most recently pushed to (or received from) the binding.
         var lastSyncedContent = ""
         private var pendingSync: DispatchWorkItem?
-        private var pendingFoldRefresh: DispatchWorkItem?
         private var needsFullRestyle = false
         private var occurrenceRanges: [NSRange] = []
 
@@ -465,12 +423,9 @@ public struct CodeEditorView: NSViewRepresentable {
             }
         }
 
-        /// Folded text must never leak into newly typed characters.
         public func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldAttributes: [String: Any] = [:],
                              toAttributes newAttributes: [NSAttributedString.Key: Any] = [:]) -> [NSAttributedString.Key: Any] {
-            var attributes = newAttributes
-            attributes.removeValue(forKey: .macNotepadFolded)
-            return attributes
+            newAttributes
         }
 
         // MARK: Highlighting
@@ -500,70 +455,12 @@ public struct CodeEditorView: NSViewRepresentable {
         func highlight(_ storage: NSTextStorage, in range: NSRange) {
             guard range.length > 0 else { return }
             let key = styleKey
-            // Keep folds across re-styling.
-            var folded: [NSRange] = []
-            if textView?.hasFolds == true {
-                storage.enumerateAttribute(.macNotepadFolded, in: range) { value, r, _ in if value != nil { folded.append(r) } }
-            }
             storage.setAttributes(palette.baseAttributes, range: range)
             if key?.isLarge == true {
                 // Large files: plain text only, so typing stays instant.
             } else if key?.liveMarkdown == true, let style = palette.markdownStyle {
                 MarkdownStyler.style(storage, in: range, style: style)
-            } else {
-                let language = key?.language ?? parent.tab.language
-                SyntaxHighlighter.tokens(in: storage.string, range: range, language: language) { kind, tokenRange in
-                    storage.addAttributes(palette.attributes(for: kind), range: tokenRange)
-                }
             }
-            for r in folded { storage.addAttribute(.macNotepadFolded, value: true, range: r) }
-        }
-
-        // MARK: Folding (null glyphs + zero-advance newlines hide folded text)
-
-        public func layoutManager(_ layoutManager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
-                                  properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
-                                  characterIndexes charIndexes: UnsafePointer<Int>, font aFont: NSFont,
-                                  forGlyphRange glyphRange: NSRange) -> Int {
-            guard textView?.hasFolds == true, let storage = layoutManager.textStorage else { return 0 }
-            let count = glyphRange.length
-            let modified = UnsafeMutablePointer<NSLayoutManager.GlyphProperty>.allocate(capacity: count)
-            defer { modified.deallocate() }
-            var changed = false
-            for i in 0..<count {
-                let index = charIndexes[i]
-                if index < storage.length, storage.attribute(.macNotepadFolded, at: index, effectiveRange: nil) != nil {
-                    modified[i] = .null
-                    changed = true
-                } else {
-                    modified[i] = props[i]
-                }
-            }
-            guard changed else { return 0 }
-            layoutManager.setGlyphs(glyphs, properties: modified, characterIndexes: charIndexes, font: aFont, forGlyphRange: glyphRange)
-            return count
-        }
-
-        public func layoutManager(_ layoutManager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction,
-                                  forControlCharacterAt charIndex: Int) -> NSLayoutManager.ControlCharacterAction {
-            if textView?.hasFolds == true, let storage = layoutManager.textStorage, charIndex < storage.length,
-               storage.attribute(.macNotepadFolded, at: charIndex, effectiveRange: nil) != nil {
-                return .zeroAdvancement
-            }
-            return action
-        }
-
-        func refreshFoldRegions() {
-            guard let textView else { return }
-            textView.foldRegions = isLarge ? [] : FoldingService.regions(in: textView.string, language: parent.tab.language)
-            ruler?.needsDisplay = true
-        }
-
-        private func scheduleFoldRefresh() {
-            pendingFoldRefresh?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.refreshFoldRegions() }
-            pendingFoldRefresh = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
 
         // MARK: Text changes
@@ -575,7 +472,6 @@ public struct CodeEditorView: NSViewRepresentable {
         public func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? EditorTextView else { return }
             ruler?.needsDisplay = true
-            scheduleFoldRefresh()
             guard !isProgrammaticUpdate else { return }
             if isLarge {
                 // Big files: publish the text after a short pause instead of copying megabytes per keystroke.
@@ -611,22 +507,10 @@ public struct CodeEditorView: NSViewRepresentable {
 
         public func textViewDidChangeSelection(_ notification: Notification) {
             guard !isProgrammaticUpdate, let textView = notification.object as? EditorTextView else { return }
-            unfoldIfCaretIsHidden(textView)
             updateCursorPosition(textView)
             updateOccurrenceHighlights(textView)
             textView.needsDisplay = true
             ruler?.needsDisplay = true
-        }
-
-        private func unfoldIfCaretIsHidden(_ textView: EditorTextView) {
-            guard textView.hasFolds, let storage = textView.textStorage else { return }
-            let caret = textView.selectedRange().location
-            guard caret > 0, caret < storage.length else { return }
-            var effective = NSRange()
-            if storage.attribute(.macNotepadFolded, at: caret, longestEffectiveRange: &effective,
-                                 in: NSRange(location: 0, length: storage.length)) != nil, caret > effective.location {
-                textView.setFolded(FoldRegion(startLine: 0, hiddenRange: effective), false)
-            }
         }
 
         @objc func scrollViewDidScroll(_ notification: Notification) {
@@ -714,7 +598,6 @@ struct EditorPalette {
     let currentLineNumber: NSColor
     let baseAttributes: [NSAttributedString.Key: Any]
     let markdownStyle: MarkdownStyler.Style?
-    private let tokenAttributes: [SyntaxTokenKind: [NSAttributedString.Key: Any]]
 
     init(key: CodeEditorView.StyleKey) {
         let isDark = key.isDark
@@ -725,9 +608,6 @@ struct EditorPalette {
             }
             return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
         }()
-        let boldFont = key.fontFamily == "SF Mono"
-            ? NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
-            : NSFontManager.shared.convert(monoFont, toHaveTrait: .boldFontMask)
 
         background = isDark
             ? NSColor(calibratedRed: 0.098, green: 0.106, blue: 0.125, alpha: 1.0) // #191B20
@@ -772,21 +652,6 @@ struct EditorPalette {
             baseAttributes = [.font: monoFont, .foregroundColor: textColor, .paragraphStyle: paragraph]
             markdownStyle = nil
         }
-
-        tokenAttributes = [
-            .function: [.foregroundColor: color((0.35, 0.83, 0.90), (0.05, 0.45, 0.65))], // #5AD4E6
-            .type: [.foregroundColor: color((0.48, 0.85, 0.92), (0.12, 0.42, 0.68))],
-            .keyword: [.foregroundColor: color((1.0, 0.42, 0.70), (0.68, 0.12, 0.54)), .font: boldFont], // #FF6BB3
-            .literal: [.foregroundColor: color((0.68, 0.55, 0.98), (0.40, 0.20, 0.78))], // #AD8CFA
-            .string: [.foregroundColor: color((0.92, 0.58, 0.42), (0.76, 0.28, 0.14)), .font: monoFont], // #EB946B
-            .comment: [.foregroundColor: isDark
-                ? NSColor(calibratedRed: 0.45, green: 0.52, blue: 0.58, alpha: 1.0)
-                : NSColor(calibratedWhite: 0.45, alpha: 1.0), .font: monoFont]
-        ]
-    }
-
-    func attributes(for kind: SyntaxTokenKind) -> [NSAttributedString.Key: Any] {
-        tokenAttributes[kind] ?? [:]
     }
 }
 #endif

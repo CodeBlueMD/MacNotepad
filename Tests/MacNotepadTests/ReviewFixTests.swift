@@ -2,7 +2,7 @@ import XCTest
 import AppKit
 @testable import MacNotepad
 
-/// Regression tests for issues found in code review.
+/// Regression tests for issues found in code review and session lifecycle.
 final class ReviewFixTests: XCTestCase {
     private var dir: URL!
 
@@ -48,23 +48,6 @@ final class ReviewFixTests: XCTestCase {
         XCTAssertEqual(LineEnding.detect(in: "a\r\nb\r\nc\n"), .crlf)
     }
 
-    @MainActor
-    func testInboxAppendKeepsExistingNonUTF8Content() throws {
-        setenv("MACNOTEPAD_DATA_DIR", dir.path, 1)
-        let store = WorkspaceStore.shared
-        let notes = dir.appendingPathComponent("Notes")
-        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
-        store.preferences.defaultSaveDirectoryPath = notes.path
-        let inbox = notes.appendingPathComponent("Inbox.md")
-        try "# Inbox\n\n- earlier thought ✓\n".data(using: .utf16)!.write(to: inbox)
-
-        store.appendToInbox("new thought")
-        let tab = try FileService.openTab(at: inbox)
-        XCTAssertTrue(tab.content.contains("earlier thought ✓"), tab.content)
-        XCTAssertTrue(tab.content.contains("new thought"), tab.content)
-        XCTAssertEqual(tab.encoding, .utf16, "The file keeps its encoding")
-    }
-
     func testOneBadTabDoesNotLoseTheWholeSession() throws {
         setenv("MACNOTEPAD_DATA_DIR", dir.path, 1)
         let good = DocumentTab(title: "keep me", content: "unsaved work", isDirty: true)
@@ -79,33 +62,6 @@ final class ReviewFixTests: XCTestCase {
         XCTAssertEqual(backups.count, 1, "The original session file is kept aside")
     }
 
-    func testSeparateNumberedListsRestartAndControlCharactersAreStripped() throws {
-        let url = dir.appendingPathComponent("lists.docx")
-        try DocxExporter.write(markdown: "1. a\n2. b\n\nBreak\u{0C} here\n\n1. c\n2. d\n", title: "Lists", to: url)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-p", url.path, "word/document.xml"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        let xml = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        process.waitUntilExit()
-        XCTAssertTrue(xml.contains("w:numId w:val=\"2\"") && xml.contains("w:numId w:val=\"3\""), "Two lists, two numberings")
-        XCTAssertFalse(xml.contains("\u{0C}"))
-        XCTAssertNotNil(try? XMLDocument(data: Data(xml.utf8)), "document.xml must be well-formed")
-
-        let reopened = try FileService.openTab(at: url).content
-        XCTAssertTrue(reopened.contains("1. c\n2. d"), reopened)
-    }
-
-    func testFoldedAttributeNeverBecomesATypingAttribute() {
-        let coordinator = CodeEditorView.Coordinator(CodeEditorView(tab: .constant(DocumentTab(title: "t")), preferences: EditorPreferences()))
-        let result = coordinator.textView(NSTextView(), shouldChangeTypingAttributes: [:],
-                                          toAttributes: [.macNotepadFolded: true, .foregroundColor: NSColor.red])
-        XCTAssertNil(result[.macNotepadFolded])
-        XCTAssertNotNil(result[.foregroundColor])
-    }
-
     func testNestedTabListItemOutdentsOnEnter() {
         let tv = EditorTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         tv.language = .markdown
@@ -115,17 +71,16 @@ final class ReviewFixTests: XCTestCase {
         XCTAssertEqual(tv.string, "- a\n- ")
     }
 
-    @MainActor
-    func testNotepadStyleDefaultsAndAutomaticOutline() {
-        XCTAssertFalse(EditorPreferences().showSidebar, "Opens like Notepad: no library panel")
-        let store = WorkspaceStore.shared
-        store.preferences.showOutline = false
-        store.preferences.autoOutlineForMarkdown = true
-        XCTAssertTrue(store.isOutlineVisible(for: DocumentTab(title: "a.md", content: "# Plan\ntext", language: .markdown)))
-        XCTAssertFalse(store.isOutlineVisible(for: DocumentTab(title: "a.md", content: "no headings", language: .markdown)))
-        XCTAssertFalse(store.isOutlineVisible(for: DocumentTab(title: "a.txt", content: "# not markdown", language: .plainText)))
-        store.preferences.showOutline = true
-        XCTAssertTrue(store.isOutlineVisible(for: DocumentTab(title: "a.swift", content: "func a() {}", language: .swift)))
-        store.preferences.showOutline = false
+    func testSessionRestorePreservesMultipleTabs() throws {
+        setenv("MACNOTEPAD_DATA_DIR", dir.path, 1)
+        let tab1 = DocumentTab(title: "Tab 1", content: "First note", isDirty: true)
+        let tab2 = DocumentTab(title: "Tab 2", content: "Second note", isDirty: false)
+        SessionManager.shared.saveSession(tabs: [tab1, tab2])
+
+        let restored = SessionManager.shared.loadSession()
+        XCTAssertEqual(restored.count, 2)
+        XCTAssertEqual(restored[0].title, "Tab 1")
+        XCTAssertEqual(restored[0].content, "First note")
+        XCTAssertEqual(restored[1].title, "Tab 2")
     }
 }

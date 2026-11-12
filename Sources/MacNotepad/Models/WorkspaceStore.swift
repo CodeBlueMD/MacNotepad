@@ -26,21 +26,12 @@ public final class WorkspaceStore: ObservableObject {
     @Published public var showFindBar = false
     @Published public var searchOptions = SearchOptions(query: "")
     @Published public var currentMatchIndex = 0
-    @Published public var isDiffMode = false
-    @Published public var compareLeftTabID: UUID?
-    @Published public var compareRightTabID: UUID?
-    @Published public var showTextToolsMenu = false
     @Published public var showSettingsSheet = false
-    @Published public var showFindInFilesSheet = false
-    @Published public var showCommandPalette = false
-    /// Distraction-free writing: hides the toolbar, tab strip, sidebars and status bar, and centres the text column.
-    /// Session-only, so the app always reopens with its normal chrome.
+    /// Distraction-free writing: hides the tab strip and status bar, and centres the text column.
     @Published public var focusMode = false
-    @Published public var findInFilesResults: [SearchMatch] = []
     @Published public var statusBannerMessage: String?
     /// Tabs whose file changed on disk while they had unsaved edits.
     @Published public var externallyChangedTabIDs: Set<UUID> = []
-    /// Bumped whenever notes are created, saved or deleted so the library sidebar rescans.
     @Published public var libraryRevision = 0
 
     private var fileWatchTimer: Timer?
@@ -67,24 +58,6 @@ public final class WorkspaceStore: ObservableObject {
 
     public var activeTab: DocumentTab? { activeTabIndex.map { tabs[$0] } }
 
-    /// The outline shows when turned on, or automatically for Markdown notes with headings.
-    public func isOutlineVisible(for tab: DocumentTab?) -> Bool {
-        guard let tab, !isDiffMode else { return false }
-        if preferences.showOutline { return true }
-        return preferences.autoOutlineForMarkdown && tab.language == .markdown
-            && !MarkdownService.headings(in: tab.content).isEmpty
-    }
-
-    /// Hiding the outline also stops it appearing automatically, so the choice sticks.
-    public func toggleOutline() {
-        if isOutlineVisible(for: activeTab) {
-            preferences.showOutline = false
-            preferences.autoOutlineForMarkdown = false
-        } else {
-            preferences.showOutline = true
-        }
-    }
-
     public var notesDirectory: URL {
         SessionManager.shared.ensureDefaultSaveDirectory(preferences: preferences)
     }
@@ -102,16 +75,12 @@ public final class WorkspaceStore: ObservableObject {
         }
         tabs.append(tab)
         activeTabID = tab.id
-        isDiffMode = false
         return tab.id
     }
 
-    /// New Markdown note, optionally inside a library folder.
-    public func newNote(in folder: URL? = nil, title: String = "Untitled") {
-        let id = newTab(title: "\(title).md", content: "# \(title)\n\n", language: .markdown, cursorAtEnd: true)
-        if let folder, let idx = tabs.firstIndex(where: { $0.id == id }) {
-            tabs[idx].pendingFolder = folder
-        }
+    /// New Markdown note.
+    public func newNote(title: String = "Untitled") {
+        _ = newTab(title: "\(title).md", content: "# \(title)\n\n", language: .markdown, cursorAtEnd: true)
     }
 
     private func nextScratchTitle() -> String {
@@ -161,7 +130,6 @@ public final class WorkspaceStore: ObservableObject {
         guard let tab = closedTabs.popLast() else { NSSound.beep(); return }
         tabs.append(tab)
         activeTabID = tab.id
-        isDiffMode = false
     }
 
     public func closeActiveTab() {
@@ -211,7 +179,6 @@ public final class WorkspaceStore: ObservableObject {
                 flashStatus(error.localizedDescription)
             }
         }
-        isDiffMode = false
         NSApp?.activate(ignoringOtherApps: true)
     }
 
@@ -321,36 +288,6 @@ public final class WorkspaceStore: ObservableObject {
         activeTabID = current
     }
 
-    public func convertActiveTab(to format: ExportDocumentFormat, useSavePanel: Bool) {
-        guard let tab = activeTab else { return }
-        let baseName = tab.baseName.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        let fileName = "\(baseName.isEmpty ? "document" : baseName).\(format.fileExtension)"
-        let destination: URL
-        if useSavePanel {
-            let panel = NSSavePanel()
-            panel.directoryURL = notesDirectory
-            panel.nameFieldStringValue = fileName
-            guard panel.runModal() == .OK, let chosen = panel.url else { return }
-            destination = chosen
-        } else {
-            destination = FileService.uniqueURL(in: notesDirectory, fileName: fileName)
-        }
-        if let source = tab.importedFrom, source.standardizedFileURL == destination.standardizedFileURL {
-            flashStatus("Choose a different name so the original \(source.lastPathComponent) is kept")
-            return
-        }
-        do {
-            try DocumentConverterService.export(
-                content: tab.content, title: tab.baseName, to: destination, format: format,
-                fontFamily: preferences.fontFamily, fontSize: preferences.fontSize,
-                isMarkdown: tab.language == .markdown)
-            flashStatus("Exported \(destination.lastPathComponent)")
-            if !useSavePanel { NSWorkspace.shared.activateFileViewerSelecting([destination]) }
-        } catch {
-            flashStatus(error.localizedDescription)
-        }
-    }
-
     public func copyActiveFilePath() {
         guard let tab = activeTab else { return }
         let path = tab.fileURL?.path ?? notesDirectory.appendingPathComponent(tab.title).path
@@ -396,47 +333,11 @@ public final class WorkspaceStore: ObservableObject {
         externallyChangedTabIDs.remove(id)
     }
 
-    // MARK: - Quick capture, URL scheme, CLI
-
-    /// Appends a timestamped entry to Inbox.md in the notes folder (used by the menu-bar quick note).
-    public func appendToInbox(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let inbox = notesDirectory.appendingPathComponent("Inbox.md")
-        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
-        do {
-            var note: DocumentTab
-            if FileManager.default.fileExists(atPath: inbox.path) {
-                // Read with encoding detection; if it can't be read, stop rather than replace it.
-                note = try FileService.openTab(at: inbox)
-            } else {
-                note = DocumentTab(title: "Inbox.md", content: "# Inbox\n", language: .markdown)
-            }
-            if !note.content.hasSuffix("\n") { note.content += "\n" }
-            note.content += "\n- \(stamp) — \(trimmed)\n"
-            try FileService.write(&note, to: inbox)
-            if let idx = tabs.firstIndex(where: { $0.fileURL?.standardizedFileURL == inbox.standardizedFileURL }), !tabs[idx].isDirty {
-                reloadTab(tabs[idx].id)
-            }
-            libraryRevision += 1
-        } catch {
-            flashStatus("Couldn't write Inbox.md: \(error.localizedDescription)")
-        }
-    }
-
-    /// Opens a fresh quick note tab and brings the window forward (global ⌃⌥N hotkey).
-    public func startQuickNote() {
-        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
-        newTab(title: "Quick Note.md", content: "# Quick Note — \(stamp)\n\n", language: .markdown, cursorAtEnd: true)
-        NSApp?.activate(ignoringOtherApps: true)
-        NSApp?.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
-    }
+    // MARK: - URL scheme & CLI
 
     /// Handles `macnotepad://` links (Shortcuts, Raycast, scripts, the `mnp` CLI):
     /// - `macnotepad://new?title=…&text=…`
     /// - `macnotepad://open?path=/abs/file&line=12`
-    /// - `macnotepad://append?text=…` (adds to Inbox.md)
-    /// - `macnotepad://quicknote`
     public func handle(url: URL) {
         if url.isFileURL { open(urls: [url]); return }
         guard url.scheme == "macnotepad" else { return }
@@ -452,10 +353,6 @@ public final class WorkspaceStore: ObservableObject {
             if let path = value("path") {
                 open(urls: [URL(fileURLWithPath: (path as NSString).expandingTildeInPath)], line: value("line").flatMap(Int.init))
             }
-        case "append":
-            if let text = value("text") { appendToInbox(text); flashStatus("Added to Inbox.md") }
-        case "quicknote":
-            startQuickNote()
         default:
             break
         }

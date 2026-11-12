@@ -3,13 +3,16 @@ import Foundation
 public enum FileServiceError: LocalizedError {
     case refusingToOverwriteRichDocument(String)
     case cannotEncode(String, DocumentEncoding)
+    case unreadableFile(String)
 
     public var errorDescription: String? {
         switch self {
         case .refusingToOverwriteRichDocument(let name):
-            return "\(name) is a formatted document. MacNotepad saves your edits as a new note instead of overwriting it."
+            return "\(name) is a formatted document. MacNotepad protects formatted documents and only edits plain text and Markdown files."
         case .cannotEncode(let name, let encoding):
             return "\(name) contains characters that can't be saved as \(encoding.rawValue)."
+        case .unreadableFile(let name):
+            return "Could not read \(name) in any supported text encoding."
         }
     }
 }
@@ -58,18 +61,10 @@ public enum FileService {
         return String(data: Data(body), encoding: encoding.stringEncoding)
     }
 
-    /// Opens any supported file as a tab. Rich documents become unsaved Markdown notes that remember their source.
+    /// Opens any supported file as a tab.
     public static func openTab(at url: URL, forcedEncoding: DocumentEncoding? = nil) throws -> DocumentTab {
         if isRichDocument(url) {
-            let markdown = try DocumentConverterService.importAsMarkdown(from: url)
-            let base = url.deletingPathExtension().lastPathComponent
-            return DocumentTab(
-                title: "\(base).md",
-                content: markdown,
-                isDirty: true,
-                language: .markdown,
-                importedFrom: url
-            )
+            throw FileServiceError.refusingToOverwriteRichDocument(url.lastPathComponent)
         }
 
         let data = try Data(contentsOf: url)
@@ -81,7 +76,7 @@ public enum FileService {
             encoding = .isoLatin1
         }
         guard let text = decoded else {
-            throw DocumentConverterError.unreadableFile(url.lastPathComponent)
+            throw FileServiceError.unreadableFile(url.lastPathComponent)
         }
         return DocumentTab(
             title: url.lastPathComponent,

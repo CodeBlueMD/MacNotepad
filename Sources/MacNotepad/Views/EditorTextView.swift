@@ -1,54 +1,14 @@
 #if canImport(AppKit)
 import AppKit
 
-extension NSAttributedString.Key {
-    /// Marks characters hidden by a code fold.
-    static let macNotepadFolded = NSAttributedString.Key("MacNotepadFolded")
-}
-
-/// The editing surface: Notepad++ line tools, multi-cursor editing, smart Enter/Tab for code and Markdown,
-/// auto-closing brackets, code folding, Notion-style formatting commands and the `/` block menu.
+/// The editing surface: Notepad line tools, smart Enter/Tab for code and Markdown,
+/// auto-closing brackets, and Notion-style lightweight formatting commands.
 public final class EditorTextView: NSTextView {
     public var currentLineHighlightColor: NSColor = NSColor.white.withAlphaComponent(0.04)
     var language: SyntaxLanguage = .plainText
     var autoCloseBrackets = true
-    /// Current fold candidates (recomputed after edits).
-    var foldRegions: [FoldRegion] = []
-    /// Called after folding changes so the gutter can redraw.
-    var onFoldingChanged: (() -> Void)?
-    /// True while any text is folded; lets layout skip fold checks entirely otherwise.
-    private(set) var hasFolds = false
-
-    /// Additional empty carets for multi-cursor editing (NSTextView itself only supports one empty caret).
-    private(set) var extraCarets: [Int] = []
-    private var isUpdatingCarets = false
 
     private var isMarkdown: Bool { language == .markdown }
-    private var hasMultipleCursors: Bool { selectedRanges.count > 1 || !extraCarets.isEmpty }
-
-    /// Every caret/selection, primary first.
-    var allCursorRanges: [NSRange] {
-        selectedRanges.map(\.rangeValue) + extraCarets.map { NSRange(location: $0, length: 0) }
-    }
-
-    /// Places one caret at each location (multi-cursor).
-    func setCarets(_ locations: [Int]) {
-        let sorted = Array(Set(locations.map { min(max(0, $0), nsText.length) })).sorted()
-        guard let first = sorted.first else { return }
-        isUpdatingCarets = true
-        setSelectedRange(NSRange(location: first, length: 0))
-        isUpdatingCarets = false
-        extraCarets = Array(sorted.dropFirst())
-        needsDisplay = true
-    }
-
-    public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
-        if !isUpdatingCarets && !extraCarets.isEmpty {
-            extraCarets = []
-            needsDisplay = true
-        }
-        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
-    }
     private var nsText: NSString { string as NSString }
 
     // MARK: - Focus
@@ -84,7 +44,7 @@ public final class EditorTextView: NSTextView {
 
     public override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard selectedRanges.count == 1, let layoutManager, let textContainer else { return }
+        guard selectedRanges.count == 1, let layoutManager, textContainer != nil else { return }
         let selected = selectedRange()
         guard selected.location <= nsText.length else { return }
 
@@ -105,62 +65,12 @@ public final class EditorTextView: NSTextView {
 
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if !extraCarets.isEmpty, let layoutManager, let textContainer {
-            (insertionPointColor ?? .textColor).setFill()
-            for caret in extraCarets {
-                var rect: NSRect
-                if caret >= nsText.length, layoutManager.extraLineFragmentTextContainer != nil {
-                    rect = layoutManager.extraLineFragmentRect
-                } else {
-                    let glyph = layoutManager.glyphIndexForCharacter(at: min(caret, max(0, nsText.length - 1)))
-                    rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
-                    if caret >= nsText.length { rect.origin.x = rect.maxX }
-                }
-                NSRect(x: rect.minX + textContainerInset.width, y: rect.minY + textContainerInset.height,
-                       width: 2, height: rect.height).fill()
-            }
-        }
-        // "⋯" pill after each folded line.
-        for rect in foldPlaceholderRects() where rect.intersects(dirtyRect) {
-            let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
-            NSColor.systemGray.withAlphaComponent(0.25).setFill()
-            path.fill()
-            let label = "⋯" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .bold), .foregroundColor: NSColor.secondaryLabelColor]
-            let size = label.size(withAttributes: attrs)
-            label.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attrs)
-        }
-    }
-
-    private func foldPlaceholderRects() -> [NSRect] {
-        guard hasFolds, let layoutManager, let textContainer, let storage = textStorage, storage.length > 0 else { return [] }
-        var rects: [NSRect] = []
-        storage.enumerateAttribute(.macNotepadFolded, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard value != nil, range.location > 0 else { return }
-            let anchor = layoutManager.glyphIndexForCharacter(at: range.location - 1)
-            var rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: anchor, length: 1), in: textContainer)
-            rect.origin.x += rect.width + textContainerInset.width + 6
-            rect.origin.y += textContainerInset.height + 2
-            rect.size = NSSize(width: 26, height: max(12, rect.height - 4))
-            rects.append(rect)
-        }
-        return rects
     }
 
     // MARK: - Mouse
 
     public override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if event.modifierFlags.contains([.command, .option]) {
-            // ⌥⌘-click adds another caret.
-            let index = characterIndexForInsertion(at: point)
-            setCarets(allCursorRanges.map(\.location) + [index])
-            return
-        }
-        if let fold = foldPlaceholderRects().firstIndex(where: { $0.contains(point) }) {
-            unfoldAll(nth: fold)
-            return
-        }
         if isMarkdown, event.clickCount == 1, !event.modifierFlags.contains(.shift) {
             let index = characterIndexForInsertion(at: point)
             if let flip = MarkdownStyler.checkboxToggleRange(at: index, in: nsText) {
@@ -179,12 +89,6 @@ public final class EditorTextView: NSTextView {
     public override func insertText(_ insertString: Any, replacementRange: NSRange) {
         guard let typed = (insertString as? String) ?? (insertString as? NSAttributedString)?.string else {
             super.insertText(insertString, replacementRange: replacementRange)
-            return
-        }
-
-        // Multiple cursors: type into every selection.
-        if hasMultipleCursors, replacementRange.location == NSNotFound {
-            replaceEachSelection { _ in typed }
             return
         }
 
@@ -208,14 +112,6 @@ public final class EditorTextView: NSTextView {
         }
 
         super.insertText(insertString, replacementRange: replacementRange)
-
-        // Notion-style "/" at the start of an empty line opens the block menu.
-        if isMarkdown, typed == "/" {
-            let caret = selectedRange().location
-            let lineStart = nsText.lineRange(for: NSRange(location: caret, length: 0)).location
-            let before = nsText.substring(with: NSRange(location: lineStart, length: caret - lineStart))
-            if before.trimmingCharacters(in: .whitespaces) == "/" { showSlashMenu(nil) }
-        }
     }
 
     private func shouldAutoPair(_ char: String, at selection: NSRange) -> Bool {
@@ -231,10 +127,6 @@ public final class EditorTextView: NSTextView {
     }
 
     public override func deleteBackward(_ sender: Any?) {
-        if hasMultipleCursors {
-            replaceEachSelection(deletingBackward: true) { _ in "" }
-            return
-        }
         let sel = selectedRange()
         if autoCloseBrackets, sel.length == 0, sel.location > 0, sel.location < nsText.length {
             let prev = nsText.substring(with: NSRange(location: sel.location - 1, length: 1))
@@ -327,11 +219,7 @@ public final class EditorTextView: NSTextView {
     }
 
     public override func cancelOperation(_ sender: Any?) {
-        if hasMultipleCursors {
-            setSelectedRange(NSRange(location: selectedRange().location, length: 0))
-        } else {
-            super.cancelOperation(sender)
-        }
+        super.cancelOperation(sender)
     }
 
     // MARK: - Edit helpers (all undoable)
@@ -346,30 +234,6 @@ public final class EditorTextView: NSTextView {
         textStorage?.replaceCharacters(in: range, with: text)
         didChangeText()
         if let select { setSelectedRange(select) }
-    }
-
-    /// Replaces every selection (multi-cursor) in one undo step, keeping a caret after each insertion.
-    private func replaceEachSelection(deletingBackward: Bool = false, _ makeText: (String) -> String) {
-        var ranges = allCursorRanges.sorted { $0.location < $1.location }
-        if deletingBackward {
-            ranges = ranges.map { $0.length == 0 && $0.location > 0 ? NSRange(location: $0.location - 1, length: 1) : $0 }
-        }
-        let replacements = ranges.map { makeText(nsText.substring(with: $0)) }
-        guard shouldChangeText(inRanges: ranges.map { NSValue(range: $0) }, replacementStrings: replacements) else { return }
-        textStorage?.beginEditing()
-        for (range, text) in zip(ranges, replacements).reversed() {
-            textStorage?.replaceCharacters(in: range, with: text)
-        }
-        textStorage?.endEditing()
-        didChangeText()
-        var shift = 0
-        var carets: [Int] = []
-        for (range, text) in zip(ranges, replacements) {
-            let length = (text as NSString).length
-            carets.append(range.location + shift + length)
-            shift += length - range.length
-        }
-        setCarets(carets)
     }
 
     /// Range covering all whole lines touched by the selection (without the final newline of the document).
@@ -525,156 +389,8 @@ public final class EditorTextView: NSTextView {
         }
     }
 
-    // MARK: - Multi-cursor
-
     private func wordRange(at location: Int) -> NSRange {
-        let range = selectionRange(forProposedRange: NSRange(location: location, length: 0), granularity: .selectByWord)
-        return range
-    }
-
-    @objc func selectNextOccurrence(_ sender: Any?) {
-        var ranges = selectedRanges.map(\.rangeValue)
-        guard let last = ranges.last else { return }
-        if last.length == 0 {
-            let word = wordRange(at: last.location)
-            guard word.length > 0 else { return }
-            ranges[ranges.count - 1] = word
-            selectedRanges = ranges.map { NSValue(range: $0) }
-            return
-        }
-        let needle = nsText.substring(with: last)
-        var found = nsText.range(of: needle, range: NSRange(location: NSMaxRange(last), length: nsText.length - NSMaxRange(last)))
-        if found.location == NSNotFound {
-            found = nsText.range(of: needle, range: NSRange(location: 0, length: last.location))
-        }
-        guard found.location != NSNotFound, !ranges.contains(found) else { NSSound.beep(); return }
-        ranges.append(found)
-        selectedRanges = ranges.map { NSValue(range: $0) }
-        scrollRangeToVisible(found)
-    }
-
-    @objc func selectAllOccurrences(_ sender: Any?) {
-        var sel = selectedRange()
-        if sel.length == 0 { sel = wordRange(at: sel.location) }
-        guard sel.length > 0 else { return }
-        let needle = nsText.substring(with: sel)
-        var ranges: [NSValue] = []
-        var search = NSRange(location: 0, length: nsText.length)
-        while true {
-            let found = nsText.range(of: needle, range: search)
-            if found.location == NSNotFound { break }
-            ranges.append(NSValue(range: found))
-            search = NSRange(location: NSMaxRange(found), length: nsText.length - NSMaxRange(found))
-        }
-        if !ranges.isEmpty { selectedRanges = ranges }
-    }
-
-    @objc func addCursorsToLineEnds(_ sender: Any?) {
-        let block = selectedLineBlock()
-        var carets: [Int] = []
-        var location = block.location
-        while location < NSMaxRange(block) {
-            let line = nsText.lineRange(for: NSRange(location: location, length: 0))
-            var end = NSMaxRange(line)
-            if end > line.location, nsText.character(at: end - 1) == 0x0A { end -= 1 }
-            carets.append(end)
-            location = NSMaxRange(line)
-            if line.length == 0 { break }
-        }
-        if !carets.isEmpty { setCarets(carets) }
-    }
-
-    // MARK: - Folding
-
-    private func region(containingLine line: Int) -> FoldRegion? {
-        foldRegions.filter { $0.startLine <= line && NSMaxRange($0.hiddenRange) > 0 }
-            .filter { region in
-                let regionEndLine = TextMetrics.lineNumber(at: NSMaxRange(region.hiddenRange), in: nsText)
-                return line <= regionEndLine
-            }
-            .max { $0.startLine < $1.startLine }
-    }
-
-    func isFolded(_ region: FoldRegion) -> Bool {
-        guard let storage = textStorage, NSMaxRange(region.hiddenRange) <= storage.length, region.hiddenRange.length > 0 else { return false }
-        return storage.attribute(.macNotepadFolded, at: region.hiddenRange.location, effectiveRange: nil) != nil
-    }
-
-    func setFolded(_ region: FoldRegion, _ folded: Bool) {
-        guard let storage = textStorage, NSMaxRange(region.hiddenRange) <= storage.length else { return }
-        if folded { hasFolds = true }
-        storage.beginEditing()
-        if folded {
-            storage.addAttribute(.macNotepadFolded, value: true, range: region.hiddenRange)
-        } else {
-            storage.removeAttribute(.macNotepadFolded, range: region.hiddenRange)
-        }
-        storage.endEditing()
-        if !folded {
-            var any = false
-            storage.enumerateAttribute(.macNotepadFolded, in: NSRange(location: 0, length: storage.length)) { value, _, stop in
-                if value != nil { any = true; stop.pointee = true }
-            }
-            hasFolds = any
-        }
-        layoutManager?.invalidateGlyphs(forCharacterRange: region.hiddenRange, changeInLength: 0, actualCharacterRange: nil)
-        layoutManager?.invalidateLayout(forCharacterRange: region.hiddenRange, actualCharacterRange: nil)
-        if folded, NSLocationInRange(selectedRange().location, region.hiddenRange) {
-            setSelectedRange(NSRange(location: region.hiddenRange.location, length: 0))
-        }
-        needsDisplay = true
-        onFoldingChanged?()
-    }
-
-    func toggleFold(startingAtLine line: Int) {
-        guard let region = foldRegions.first(where: { $0.startLine == line }) else { return }
-        setFolded(region, !isFolded(region))
-    }
-
-    @objc func foldAtCursor(_ sender: Any?) {
-        let line = TextMetrics.lineNumber(at: selectedRange().location, in: nsText)
-        if let region = region(containingLine: line) { setFolded(region, true) } else { NSSound.beep() }
-    }
-
-    @objc func unfoldAtCursor(_ sender: Any?) {
-        let line = TextMetrics.lineNumber(at: selectedRange().location, in: nsText)
-        if let region = foldRegions.first(where: { $0.startLine == line && isFolded($0) }) ?? region(containingLine: line) {
-            setFolded(region, false)
-        }
-    }
-
-    @objc func foldAll(_ sender: Any?) {
-        // Fold outermost regions only, so unfolding reveals the next level.
-        var covered = NSRange(location: 0, length: 0)
-        for region in foldRegions.sorted(by: { $0.hiddenRange.location < $1.hiddenRange.location }) {
-            if NSLocationInRange(region.hiddenRange.location, covered) { continue }
-            setFolded(region, true)
-            covered = region.hiddenRange
-        }
-    }
-
-    @objc func unfoldAll(_ sender: Any?) {
-        guard let storage = textStorage else { return }
-        let all = NSRange(location: 0, length: storage.length)
-        storage.removeAttribute(.macNotepadFolded, range: all)
-        hasFolds = false
-        layoutManager?.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
-        layoutManager?.invalidateLayout(forCharacterRange: all, actualCharacterRange: nil)
-        needsDisplay = true
-        onFoldingChanged?()
-    }
-
-    private func unfoldAll(nth index: Int) {
-        guard let storage = textStorage else { return }
-        var n = 0
-        storage.enumerateAttribute(.macNotepadFolded, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
-            guard value != nil, range.location > 0 else { return }
-            if n == index {
-                setFolded(FoldRegion(startLine: 0, hiddenRange: range), false)
-                stop.pointee = true
-            }
-            n += 1
-        }
+        selectionRange(forProposedRange: NSRange(location: location, length: 0), granularity: .selectByWord)
     }
 
     // MARK: - Markdown formatting (Notion-style)
@@ -809,74 +525,5 @@ public final class EditorTextView: NSTextView {
         replace(replaceRange, with: text, select: NSRange(location: min(base + selectOffset, replaceRange.location + (text as NSString).length), length: selectLength))
     }
 
-    // MARK: - Slash menu
-
-    private struct SlashItem {
-        let title: String
-        let symbol: String
-        let apply: (EditorTextView) -> Void
-    }
-
-    private var slashItems: [SlashItem] {
-        [
-            SlashItem(title: "Text", symbol: "textformat") { $0.applySlash(prefix: "") },
-            SlashItem(title: "Heading 1", symbol: "textformat.size.larger") { $0.applySlash(prefix: "# ") },
-            SlashItem(title: "Heading 2", symbol: "textformat.size") { $0.applySlash(prefix: "## ") },
-            SlashItem(title: "Heading 3", symbol: "textformat.size.smaller") { $0.applySlash(prefix: "### ") },
-            SlashItem(title: "To-do List", symbol: "checkmark.square") { $0.applySlash(prefix: "- [ ] ") },
-            SlashItem(title: "Bulleted List", symbol: "list.bullet") { $0.applySlash(prefix: "- ") },
-            SlashItem(title: "Numbered List", symbol: "list.number") { $0.applySlash(prefix: "1. ") },
-            SlashItem(title: "Quote", symbol: "text.quote") { $0.applySlash(prefix: "> ") },
-            SlashItem(title: "Callout", symbol: "lightbulb") { $0.applySlash(prefix: "> 💡 ") },
-            SlashItem(title: "Code Block", symbol: "chevron.left.forwardslash.chevron.right") {
-                $0.insertBlock("```\n\n```\n", selectOffset: 4, selectLength: 0)
-            },
-            SlashItem(title: "Table", symbol: "tablecells") { $0.insertTable(nil) },
-            SlashItem(title: "Divider", symbol: "minus") { $0.insertDivider(nil) },
-            SlashItem(title: "Today's Date", symbol: "calendar") { tv in
-                tv.applySlash(prefix: "")
-                tv.insertDate(nil)
-            },
-        ]
-    }
-
-    @objc func showSlashMenu(_ sender: Any?) {
-        let menu = NSMenu(title: "Insert Block")
-        menu.autoenablesItems = false
-        let header = NSMenuItem(title: "Insert block", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        for (index, item) in slashItems.enumerated() {
-            let menuItem = NSMenuItem(title: item.title, action: #selector(slashItemChosen(_:)), keyEquivalent: "")
-            menuItem.tag = index
-            menuItem.target = self
-            menuItem.image = NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil)
-            menu.addItem(menuItem)
-        }
-        guard let layoutManager, let textContainer else { return }
-        let caret = min(selectedRange().location, max(0, nsText.length - 1))
-        let glyph = layoutManager.glyphIndexForCharacter(at: caret)
-        var rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
-        rect.origin.x += textContainerInset.width
-        rect.origin.y += textContainerInset.height
-        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.maxY + 4), in: self)
-    }
-
-    @objc private func slashItemChosen(_ sender: NSMenuItem) {
-        guard slashItems.indices.contains(sender.tag) else { return }
-        slashItems[sender.tag].apply(self)
-    }
-
-    /// Turns the current line (minus a "/" trigger) into a block with `prefix`.
-    private func applySlash(prefix: String) {
-        let sel = selectedRange()
-        var line = nsText.lineRange(for: NSRange(location: sel.location, length: 0))
-        if line.length > 0, nsText.character(at: NSMaxRange(line) - 1) == 0x0A { line.length -= 1 }
-        var text = nsText.substring(with: line)
-        if let slash = text.range(of: "/", options: .backwards) { text.removeSubrange(slash) }
-        let parts = Self.stripBlockPrefix(text)
-        let newLine = parts.indent + prefix + parts.body.trimmingCharacters(in: .whitespaces)
-        replace(line, with: newLine, select: NSRange(location: line.location + (newLine as NSString).length, length: 0))
-    }
 }
 #endif

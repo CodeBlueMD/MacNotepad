@@ -11,27 +11,16 @@ struct MacNotepadApp: App {
     var body: some Scene {
         Window("MacNotepad", id: "main") {
             MainWorkspaceView()
-                .frame(minWidth: 920, minHeight: 600)
+                .frame(minWidth: 700, minHeight: 450)
         }
         .windowStyle(.hiddenTitleBar)
         .commands { MacNotepadCommands(store: store) }
-
-        MenuBarExtra("MacNotepad Quick Note", systemImage: "square.and.pencil") {
-            QuickCaptureView()
-        }
-        .menuBarExtraStyle(.window)
     }
 }
 
 /// Handles Finder "Open With", `macnotepad://` links, the Dock menu, and saving the session on quit.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var hotKey: GlobalHotKey?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // ⌃⌥N from any app opens a new quick note.
-        hotKey = GlobalHotKey(keyCode: 45, modifiers: [.control, .option]) {
-            Task { @MainActor in WorkspaceStore.shared.startQuickNote() }
-        }
         // Screenshot/demo helper: MACNOTEPAD_WINDOW_SIZE=1440x900 sizes and centers the main window.
         if let size = ProcessInfo.processInfo.environment["MACNOTEPAD_WINDOW_SIZE"]?.split(separator: "x").compactMap({ Double($0) }),
            size.count == 2 {
@@ -73,13 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
-        menu.addItem(withTitle: "New Note", action: #selector(dockNewNote), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "New Quick Note", action: #selector(dockQuickNote), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "New Tab", action: #selector(dockNewTab), keyEquivalent: "").target = self
         return menu
     }
 
-    @objc private func dockNewNote() { Task { @MainActor in WorkspaceStore.shared.newNote(); NSApp.activate(ignoringOtherApps: true) } }
-    @objc private func dockQuickNote() { Task { @MainActor in WorkspaceStore.shared.startQuickNote() } }
+    @objc private func dockNewTab() {
+        Task { @MainActor in
+            WorkspaceStore.shared.newTab()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
 }
 
 /// Sends an editor command down the responder chain to the focused `EditorTextView`.
@@ -87,7 +79,7 @@ func sendEditorAction(_ selector: Selector) {
     NSApp.sendAction(selector, to: nil, from: nil)
 }
 
-/// The real macOS menu bar: File, Edit, Line, Format, View, Tabs and Tools, with standard shortcuts.
+/// The macOS menu bar: File, Edit, Line, Format, View, Tabs, and Document, with standard shortcuts.
 struct MacNotepadCommands: Commands {
     @ObservedObject var store: WorkspaceStore
 
@@ -100,9 +92,6 @@ struct MacNotepadCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { store.newTab() }
                 .keyboardShortcut("n", modifiers: .command)
-            Button("New Note") { store.newNote() }
-                .keyboardShortcut("n", modifiers: [.command, .option])
-            Button("New Quick Note") { store.startQuickNote() }
             Divider()
             Button("Open…") { store.openFilePanel() }
                 .keyboardShortcut("o", modifiers: .command)
@@ -127,11 +116,6 @@ struct MacNotepadCommands: Commands {
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             Button("Save All") { store.saveAll() }
                 .keyboardShortcut("s", modifiers: [.command, .option])
-            Menu("Export As") {
-                ForEach(ExportDocumentFormat.allCases) { format in
-                    Button(format.rawValue + "…") { store.convertActiveTab(to: format, useSavePanel: true) }
-                }
-            }
             Divider()
             Button("Reveal in Finder") { store.revealActiveFileInFinder() }
             Button("Copy File Path") { store.copyActiveFilePath() }
@@ -141,16 +125,8 @@ struct MacNotepadCommands: Commands {
             Divider()
             Button("Find & Replace…") { withAnimation { store.showFindBar.toggle() } }
                 .keyboardShortcut("f", modifiers: .command)
-            Button("Find in Notes Folder…") {
-                store.findInFilesResults = SearchEngine.findInFiles(directoryURL: store.notesDirectory, options: store.searchOptions)
-                store.showFindInFilesSheet = true
-            }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
             Button("Go to Line…") { sendEditorAction(#selector(EditorTextView.goToLine(_:))) }
                 .keyboardShortcut("l", modifiers: .command)
-            Divider()
-            Button("Command Palette…") { store.showCommandPalette = true }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
         }
 
         CommandMenu("Line") {
@@ -169,22 +145,6 @@ struct MacNotepadCommands: Commands {
                 .keyboardShortcut("]", modifiers: .command)
             Button("Outdent") { sendEditorAction(#selector(EditorTextView.outdentLines(_:))) }
                 .keyboardShortcut("[", modifiers: .command)
-            Divider()
-            Button("Select Next Occurrence") { sendEditorAction(#selector(EditorTextView.selectNextOccurrence(_:))) }
-                .keyboardShortcut("d", modifiers: .command)
-            Button("Select All Occurrences") { sendEditorAction(#selector(EditorTextView.selectAllOccurrences(_:))) }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
-            Button("Add Cursors to Line Ends") { sendEditorAction(#selector(EditorTextView.addCursorsToLineEnds(_:))) }
-                .keyboardShortcut("i", modifiers: [.command, .shift])
-            Divider()
-            Button("Fold") { sendEditorAction(#selector(EditorTextView.foldAtCursor(_:))) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            Button("Unfold") { sendEditorAction(#selector(EditorTextView.unfoldAtCursor(_:))) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-            Button("Fold All") { sendEditorAction(#selector(EditorTextView.foldAll(_:))) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option, .shift])
-            Button("Unfold All") { sendEditorAction(#selector(EditorTextView.unfoldAll(_:))) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option, .shift])
         }
 
         CommandMenu("Format") {
@@ -220,29 +180,17 @@ struct MacNotepadCommands: Commands {
             Divider()
             Button("Toggle Checkbox") { sendEditorAction(#selector(EditorTextView.toggleCheckbox(_:))) }
                 .keyboardShortcut(.return, modifiers: .command)
-            Button("Insert Block…") { sendEditorAction(#selector(EditorTextView.showSlashMenu(_:))) }
-                .keyboardShortcut("/", modifiers: [.command, .option])
-            Button("Insert Table") { sendEditorAction(#selector(EditorTextView.insertTable(_:))) }
-            Button("Insert Divider") { sendEditorAction(#selector(EditorTextView.insertDivider(_:))) }
             Button("Insert Today's Date") { sendEditorAction(#selector(EditorTextView.insertDate(_:))) }
                 .keyboardShortcut(";", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .sidebar) {
-            Toggle("Show Notes Library", isOn: $store.preferences.showSidebar)
-                .keyboardShortcut("s", modifiers: [.command, .control])
-            Button(store.isOutlineVisible(for: store.activeTab) ? "Hide Outline" : "Show Outline") { store.toggleOutline() }
-                .keyboardShortcut("o", modifiers: [.command, .control])
-            Toggle("Show Markdown Preview", isOn: $store.preferences.showPreview)
-                .keyboardShortcut("p", modifiers: [.command, .option])
-            Divider()
             Toggle("Live Markdown Styling", isOn: $store.preferences.liveMarkdownStyling)
             Toggle("Show Line Numbers", isOn: $store.preferences.showLineNumbers)
             Toggle("Show Invisibles", isOn: $store.preferences.showWhitespace)
                 .keyboardShortcut("i", modifiers: [.command, .option])
             Toggle("Word Wrap", isOn: $store.preferences.wordWrap)
                 .keyboardShortcut("z", modifiers: [.command, .option])
-            Toggle("Auto-close Brackets", isOn: $store.preferences.autoCloseBrackets)
             Picker("Theme", selection: $store.preferences.theme) {
                 ForEach(AppTheme.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -256,8 +204,6 @@ struct MacNotepadCommands: Commands {
             Divider()
             Toggle("Focus Mode", isOn: $store.focusMode)
                 .keyboardShortcut("f", modifiers: [.command, .option])
-            Button("Compare Tabs Side by Side") { store.isDiffMode.toggle() }
-                .keyboardShortcut("d", modifiers: [.command, .option])
         }
 
         CommandMenu("Tabs") {
@@ -272,19 +218,7 @@ struct MacNotepadCommands: Commands {
             }
         }
 
-        CommandMenu("Tools") {
-            Menu("Text Tools") {
-                ForEach(TextToolAction.allCases) { action in
-                    Button(action.rawValue) { applyTextTool(action) }
-                }
-            }
-            Menu("Language") {
-                ForEach(SyntaxLanguage.allCases) { language in
-                    Button(language.rawValue) {
-                        if let idx = store.activeTabIndex { store.tabs[idx].language = language }
-                    }
-                }
-            }
+        CommandMenu("Document") {
             Menu("Reopen with Encoding") {
                 ForEach(DocumentEncoding.allCases) { encoding in
                     Button(encoding.rawValue) { store.reopenActiveTab(with: encoding) }
@@ -306,17 +240,6 @@ struct MacNotepadCommands: Commands {
             }
             Divider()
             Button("Install Command Line Tool (mnp)…") { CommandLineInstaller.install(store: store) }
-        }
-    }
-
-    private func applyTextTool(_ action: TextToolAction) {
-        guard let idx = store.activeTabIndex else { return }
-        do {
-            store.tabs[idx].content = try TextToolsService.apply(action, to: store.tabs[idx].content)
-            store.tabs[idx].isDirty = true
-            store.flashStatus("Applied \(action.rawValue)")
-        } catch {
-            store.flashStatus(error.localizedDescription)
         }
     }
 }
